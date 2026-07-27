@@ -1,0 +1,543 @@
+#include "hud_renderer.h"
+
+#include "config.h"
+#include "hd2_api.h"    // formatDuration / formatCompact
+#include "hud_fonts.h"  // must be included by exactly one .cpp
+
+using namespace layout;
+
+// ---------------------------------------------------------------------------
+//  Small helpers
+// ---------------------------------------------------------------------------
+
+static String upper(const String &s) {
+  String t = s;
+  t.toUpperCase();
+  return t;
+}
+
+// Humans holding a planet is good news; anyone else gets the red treatment.
+static uint16_t factionColor(const String &faction) {
+  return faction.equalsIgnoreCase("Humans") ? theme::green : theme::red;
+}
+
+// Anchor point inside a w*h box for a given TFT_eSPI datum.
+static void datumAnchor(uint8_t datum, int16_t w, int16_t h, int16_t &ax, int16_t &ay) {
+  switch (datum) {
+    case TC_DATUM: ax = w / 2; ay = 0;     break;
+    case TR_DATUM: ax = w;     ay = 0;     break;
+    case ML_DATUM: ax = 0;     ay = h / 2; break;
+    case MC_DATUM: ax = w / 2; ay = h / 2; break;
+    case MR_DATUM: ax = w;     ay = h / 2; break;
+    default:       ax = 0;     ay = 0;     break;  // TL_DATUM
+  }
+}
+
+// Everything that, when it changes, warrants a full body repaint. The
+// countdown, WiFi dot and footer are deliberately excluded — they update
+// themselves through their own small sprites.
+static String contentSignature(const HudModel &m) {
+  if (!m.haveData) return F("boot");
+  String s;
+  s.reserve(160);
+  if (!m.order.valid) {
+    s = F("idle|");
+  } else {
+    s = m.order.title;
+    s += '|';
+    s += m.order.briefing;
+    s += '|';
+    s += String(m.order.rewardAmount);
+    s += '|';
+    s += m.planet.name;
+    s += '|';
+    s += m.planet.sector;
+    s += '|';
+    s += m.planet.biome;
+    s += '|';
+    s += m.planet.owner;
+    s += '|';
+    s += String((int)(m.planet.liberation * 10.0f));  // 0.1% resolution
+    s += '|';
+    s += String(m.planet.playerCount);
+    s += '|';
+  }
+  s += String(m.war.playerCount);
+  s += '|';
+  s += String(m.war.missionSuccessRate);
+  s += '|';
+  s += formatCompact(m.war.totalKills);
+  return s;
+}
+
+// Geometry of the two footer stat boxes and the value area inside them.
+static constexpr int16_t kStatW = (contentW - statGap) / 2;  // 216
+static constexpr int16_t kStatInsetX = 12;
+static constexpr int16_t kStatValueDy = 21;
+static constexpr int16_t kStatValueH = 20;
+
+// ---------------------------------------------------------------------------
+//  Lifecycle
+// ---------------------------------------------------------------------------
+
+void HUDRenderer::begin() {
+  _tft.init();
+  // Rotation 1 turns the native 320x480 portrait panel into 480x320 landscape.
+  // If the image is upside down for how the board sits on your desk, use 3.
+  _tft.setRotation(1);
+  _tft.fillScreen(theme::bg);
+
+  // TFT_BL is driven by TFT_eSPI when TFT_BL is defined, but do it explicitly
+  // so the backlight is on even if that define is later removed.
+#ifdef TFT_BL
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
+#endif
+
+  invalidate();
+}
+
+void HUDRenderer::invalidate() {
+  _chromeDrawn = false;
+  _contentSig = "";
+  _countdownSig = "";
+  _footerSig = "";
+  _wifiSig = -1;
+}
+
+// ---------------------------------------------------------------------------
+//  Primitives
+// ---------------------------------------------------------------------------
+
+void HUDRenderer::textBox(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t bg,
+                          const GFXfont *font, uint16_t fg, uint8_t datum,
+                          const String &s, int16_t inset) {
+  TFT_eSprite spr(&_tft);
+  spr.setColorDepth(16);
+  if (spr.createSprite(w, h)) {
+    spr.fillSprite(bg);
+    spr.setFreeFont(font);
+    spr.setTextColor(fg, bg);
+    spr.setTextDatum(datum);
+    int16_t ax, ay;
+    datumAnchor(datum, w, h, ax, ay);
+    if (datum == TL_DATUM || datum == ML_DATUM) ax += inset;
+    if (datum == TR_DATUM || datum == MR_DATUM) ax -= inset;
+    spr.drawString(s.c_str(), ax, ay);
+    spr.pushSprite(x, y);
+    spr.deleteSprite();
+    return;
+  }
+  // Sprite allocation failed (heap pressure) — fall back to direct drawing.
+  // Slight flicker, but never a blank region.
+  _tft.fillRect(x, y, w, h, bg);
+  _tft.setFreeFont(font);
+  _tft.setTextColor(fg, bg);
+  _tft.setTextDatum(datum);
+  int16_t ax, ay;
+  datumAnchor(datum, w, h, ax, ay);
+  if (datum == TL_DATUM || datum == ML_DATUM) ax += inset;
+  if (datum == TR_DATUM || datum == MR_DATUM) ax -= inset;
+  _tft.drawString(s.c_str(), x + ax, y + ay);
+}
+
+void HUDRenderer::drawRule(int16_t y) {
+  _tft.drawFastHLine(padX, y, contentW, theme::goldDim);
+}
+
+int HUDRenderer::wrapText(const String &in, const GFXfont *font, int16_t maxW,
+                          String *out, int maxLines) {
+  _tft.setFreeFont(font);
+
+  String s = in;
+  s.replace('\n', ' ');
+  s.replace('\r', ' ');
+
+  int lines = 0;
+  int i = 0;
+  String cur;
+
+  while (i < (int)s.length() && lines < maxLines) {
+    while (i < (int)s.length() && s[i] == ' ') i++;
+    int j = i;
+    while (j < (int)s.length() && s[j] != ' ') j++;
+    if (j == i) break;
+
+    const String word = s.substring(i, j);
+    const String trial = cur.length() ? cur + " " + word : word;
+
+    if (_tft.textWidth(trial.c_str()) <= maxW) {
+      cur = trial;
+      i = j;
+    } else if (cur.length() == 0) {
+      // A single word wider than the column: take it anyway rather than loop.
+      out[lines++] = word;
+      i = j;
+    } else {
+      out[lines++] = cur;
+      cur = "";
+    }
+  }
+  if (cur.length() && lines < maxLines) out[lines++] = cur;
+
+  // Anything left over gets an ellipsis on the final line.
+  while (i < (int)s.length() && s[i] == ' ') i++;
+  if (i < (int)s.length() && lines > 0) {
+    String last = out[lines - 1];
+    while (last.length() > 1 && _tft.textWidth((last + "...").c_str()) > maxW) {
+      last.remove(last.length() - 1);
+    }
+    out[lines - 1] = last + "...";
+  }
+  return lines;
+}
+
+void HUDRenderer::drawStatBox(int16_t x, int16_t y, int16_t w, int16_t h,
+                              const String &label, const String &value,
+                              uint16_t valueColor) {
+  _tft.fillRect(x, y, w, h, theme::panel);
+  _tft.drawRect(x, y, w, h, theme::goldDim);
+  textBox(x + 1, y + 5, w - 2, 15, theme::panel, FONT_LABEL, theme::grey, ML_DATUM,
+          label, kStatInsetX - 1);
+
+  // Drop a size rather than run off the edge of the box (long values show up
+  // in the WiFi-setup screen, and for very large player counts).
+  _tft.setFreeFont(FONT_VALUE);
+  const GFXfont *valueFont =
+      (_tft.textWidth(value.c_str()) > w - 2 * kStatInsetX) ? FONT_LABEL : FONT_VALUE;
+  textBox(x + 1, y + kStatValueDy, w - 2, kStatValueH, theme::panel, valueFont,
+          valueColor, ML_DATUM, value, kStatInsetX - 1);
+}
+
+void HUDRenderer::drawProgressBar(float pct, bool known) {
+  TFT_eSprite spr(&_tft);
+  spr.setColorDepth(16);
+  if (!spr.createSprite(contentW, barH)) {
+    _tft.fillRect(padX, barY, contentW, barH, theme::track);
+    _tft.drawRect(padX, barY, contentW, barH, theme::goldDim);
+    return;
+  }
+
+  spr.fillSprite(theme::track);
+  if (known) {
+    const int16_t fillW = (int16_t)((contentW - 2) * (pct / 100.0f) + 0.5f);
+    if (fillW > 0) spr.fillRect(1, 1, fillW, barH - 2, theme::blue);
+  }
+  spr.drawRect(0, 0, contentW, barH, theme::goldDim);
+
+  // Centred label, deliberately short so it stays legible where it crosses
+  // the fill/track boundary.
+  char buf[24];
+  if (known) {
+    snprintf(buf, sizeof(buf), "%d%% LIBERATED", (int)(pct + 0.5f));
+  } else {
+    snprintf(buf, sizeof(buf), "AWAITING TELEMETRY");
+  }
+  spr.setFreeFont(FONT_VALUE);
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(known ? theme::text : theme::grey);
+  spr.drawString(buf, contentW / 2, barH / 2);
+
+  spr.pushSprite(padX, barY);
+  spr.deleteSprite();
+}
+
+void HUDRenderer::drawBadge(const String &faction) {
+  const String label = upper(faction.length() ? faction : String("UNKNOWN"));
+  const uint16_t c = factionColor(faction);
+
+  _tft.setFreeFont(FONT_LABEL);
+  int16_t w = _tft.textWidth(label.c_str()) + 2 * badgePadX;
+  if (w > 150) w = 150;
+  const int16_t x = contentR - w;
+  const int16_t y = targetY + (targetH - badgeH) / 2;
+
+  _tft.fillRect(x, y, w, badgeH, theme::bg);
+  _tft.drawRect(x, y, w, badgeH, c);
+  textBox(x + 1, y + 1, w - 2, badgeH - 2, theme::bg, FONT_LABEL, c, MC_DATUM, label);
+}
+
+// ---------------------------------------------------------------------------
+//  Chrome — outer frame, corner brackets, header row
+// ---------------------------------------------------------------------------
+
+void HUDRenderer::drawChrome() {
+  const int16_t x0 = frameX, y0 = frameY;
+  const int16_t x1 = frameX + frameW - 1, y1 = frameY + frameH - 1;
+
+  _tft.drawRect(x0, y0, frameW, frameH, theme::goldDim);
+
+  // Squared-off corner accents: two arms per corner, brighter and thicker
+  // than the frame itself.
+  const int16_t L = bracketLen, T = bracketThick;
+  // top-left
+  _tft.fillRect(x0, y0, L, T, theme::gold);
+  _tft.fillRect(x0, y0, T, L, theme::gold);
+  // top-right
+  _tft.fillRect(x1 - L + 1, y0, L, T, theme::gold);
+  _tft.fillRect(x1 - T + 1, y0, T, L, theme::gold);
+  // bottom-left
+  _tft.fillRect(x0, y1 - T + 1, L, T, theme::gold);
+  _tft.fillRect(x0, y1 - L + 1, T, L, theme::gold);
+  // bottom-right
+  _tft.fillRect(x1 - L + 1, y1 - T + 1, L, T, theme::gold);
+  _tft.fillRect(x1 - T + 1, y1 - L + 1, T, L, theme::gold);
+
+  textBox(padX, headerY, 200, headerH, theme::bg, FONT_LABEL, theme::gold, ML_DATUM,
+          F("SUPER EARTH"));
+  drawRule(rule1Y);
+
+  _chromeDrawn = true;
+}
+
+void HUDRenderer::drawWifi(bool up) {
+  const int8_t sig = up ? 1 : 0;
+  if (sig == _wifiSig) return;
+  _wifiSig = sig;
+
+  const uint16_t c = up ? theme::green : theme::red;
+  const int16_t dotR = 5;
+  const int16_t dotCx = contentR - dotR;
+  const int16_t cy = headerY + headerH / 2;
+
+  // Label right-aligned just left of the dot.
+  textBox(contentR - 110, headerY, 110 - (2 * dotR + 6), headerH, theme::bg,
+          FONT_LABEL, c, MR_DATUM, up ? F("WIFI") : F("OFFLINE"));
+
+  _tft.fillRect(dotCx - dotR, cy - dotR, 2 * dotR + 1, 2 * dotR + 1, theme::bg);
+  _tft.fillCircle(dotCx, cy, dotR, c);
+}
+
+// ---------------------------------------------------------------------------
+//  Body
+// ---------------------------------------------------------------------------
+
+void HUDRenderer::drawBody(const HudModel &m, time_t nowUtc) {
+  // Clear everything below the header rule, then repaint the chrome, since
+  // the corner brackets are thicker than the 1px frame we left standing.
+  _tft.fillRect(frameX + 1, rule1Y + 1, frameW - 2,
+                frameY + frameH - rule1Y - 2, theme::bg);
+  drawChrome();
+  _wifiSig = -1;  // the header repaint wiped the dot
+
+  if (!m.haveData) {
+    textBox(padX, 130, contentW, 34, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
+            F("ESTABLISHING UPLINK"));
+    textBox(padX, 170, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
+            F("Contacting Super Earth High Command..."));
+  } else if (m.order.valid) {
+    drawOrderBody(m);
+  } else {
+    drawIdleBody();
+  }
+
+  // Galactic war footer strip — drawn on every body state.
+  drawRule(rule3Y);
+  if (m.war.valid) {
+    const int16_t colW = contentW / 3;
+    // Labels are kept terse on purpose: at 9pt bold, a third of the content
+    // column is only ~146px and has to hold both label and value.
+    struct {
+      const char *label;
+      String value;
+    } cols[3] = {
+        {"KILLS", formatCompact(m.war.totalKills)},
+        {"SUCCESS", String(m.war.missionSuccessRate) + "%"},
+        {"ONLINE", formatCompact(m.war.playerCount)},
+    };
+    for (int i = 0; i < 3; i++) {
+      const int16_t x = padX + i * colW;
+      _tft.setFreeFont(FONT_LABEL);
+      const int16_t lw = _tft.textWidth(cols[i].label) + 8;
+      textBox(x, warY, lw, warH, theme::bg, FONT_LABEL, theme::grey, ML_DATUM,
+              cols[i].label);
+      textBox(x + lw, warY, colW - lw - 6, warH, theme::bg, FONT_LABEL, theme::gold,
+              ML_DATUM, cols[i].value);
+    }
+  }
+
+  // Force the self-updating regions to repaint into the freshly cleared area.
+  _countdownSig = "";
+  _footerSig = "";
+  if (m.haveData && m.order.valid) drawCountdown(m, nowUtc);
+  drawFooter(m, nowUtc);
+}
+
+void HUDRenderer::drawOrderBody(const HudModel &m) {
+  // --- title + briefing ---------------------------------------------------
+  textBox(padX, titleY, contentW, titleH, theme::bg, FONT_DISPLAY, theme::gold,
+          ML_DATUM, upper(m.order.title));
+
+  String lines[briefMaxLines];
+  const int n = wrapText(m.order.briefing, FONT_BODY, contentW, lines, briefMaxLines);
+  for (int i = 0; i < n; i++) {
+    textBox(padX, briefY + i * briefLineH, contentW, briefLineH, theme::bg, FONT_BODY,
+            theme::text, ML_DATUM, lines[i]);
+  }
+
+  drawRule(rule2Y);
+
+  // --- target planet ------------------------------------------------------
+  textBox(padX, targetY, targetLabelW, targetH, theme::bg, FONT_LABEL, theme::grey,
+          ML_DATUM, F("TARGET"));
+
+  if (m.planet.valid) {
+    drawBadge(m.planet.owner);
+
+    // Width left for the planet name between the label and the badge.
+    _tft.setFreeFont(FONT_LABEL);
+    int16_t badgeW = _tft.textWidth(upper(m.planet.owner).c_str()) + 2 * badgePadX;
+    if (badgeW > 150) badgeW = 150;
+    const int16_t nameW = (contentR - badgeW - 10) - targetNameX;
+
+    // Drop a size if the name doesn't fit (e.g. "Charbal-VII").
+    _tft.setFreeFont(FONT_DISPLAY);
+    const GFXfont *nameFont =
+        (_tft.textWidth(m.planet.name.c_str()) > nameW) ? FONT_VALUE : FONT_DISPLAY;
+    textBox(targetNameX, targetY, nameW, targetH, theme::bg, nameFont, theme::text,
+            ML_DATUM, m.planet.name);
+
+    String sub = m.planet.sector.length() ? m.planet.sector + " SECTOR" : String("");
+    if (m.planet.biome.length()) {
+      if (sub.length()) sub += "  -  ";
+      sub += m.planet.biome;
+    }
+    textBox(padX, subY, contentW, subH, theme::bg, FONT_BODY, theme::grey, ML_DATUM,
+            sub);
+
+    drawProgressBar(m.planet.liberation, true);
+  } else {
+    // The order has no planet-scoped task, or the planet lookup failed.
+    textBox(targetNameX, targetY, contentR - targetNameX, targetH, theme::bg,
+            FONT_VALUE, theme::grey, ML_DATUM,
+            m.order.planetIndex >= 0 ? F("PLANET DATA UNAVAILABLE")
+                                     : F("GALAXY-WIDE OBJECTIVE"));
+    drawProgressBar(0.0f, false);
+  }
+
+  // --- footer stat boxes --------------------------------------------------
+  // Box 1's value is painted by drawCountdown(); pass a placeholder here.
+  drawStatBox(padX, statY, kStatW, statH, F("TIME LEFT"), "", theme::gold);
+  drawStatBox(padX + kStatW + statGap, statY, kStatW, statH, F("PLAYERS"),
+              m.planet.valid ? formatCompact(m.planet.playerCount) : String("--"),
+              theme::gold);
+}
+
+void HUDRenderer::drawIdleBody() {
+  // Two lines: "NO ACTIVE MAJOR ORDER" on one line at 18pt is 463px, wider
+  // than the 440px content column.
+  textBox(padX, 112, contentW, 32, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
+          F("NO ACTIVE"));
+  textBox(padX, 146, contentW, 32, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
+          F("MAJOR ORDER"));
+  textBox(padX, 188, contentW, 20, theme::bg, FONT_BODY, theme::text, MC_DATUM,
+          F("Stand by for orders from Super Earth High Command."));
+  textBox(padX, 212, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
+          F("Managed democracy does not sleep."));
+}
+
+void HUDRenderer::drawCountdown(const HudModel &m, time_t nowUtc) {
+  String s;
+  // 1.6e9 ~= 2020-09; anything below that means NTP hasn't synced yet and the
+  // countdown would be nonsense.
+  if (m.order.expiration > 0 && nowUtc > 1600000000) {
+    s = formatDuration((int64_t)m.order.expiration - (int64_t)nowUtc);
+  } else {
+    s = "--";
+  }
+  if (s == _countdownSig) return;
+  _countdownSig = s;
+
+  const uint16_t c = (s == "EXPIRED") ? theme::red : theme::gold;
+  textBox(padX + 1, statY + kStatValueDy, kStatW - 2, kStatValueH, theme::panel,
+          FONT_VALUE, c, ML_DATUM, s, kStatInsetX - 1);
+}
+
+void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
+  String left;
+  if (!m.haveData) {
+    left = "NO DATA YET";
+  } else {
+    char t[16] = "--:--";
+    if (m.lastSuccess > 0) {
+      struct tm tmv;
+      time_t ls = m.lastSuccess;
+      gmtime_r(&ls, &tmv);
+      snprintf(t, sizeof(t), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    }
+    left = (m.stale ? String("STALE - LAST ") : String("SYNCED ")) + t + " UTC";
+  }
+
+  String right;
+  if (m.haveData && m.order.valid && m.order.rewardAmount > 0) {
+    right = "REWARD " + String(m.order.rewardAmount) + " MEDALS";
+  }
+
+  const String sig = left + "|" + right;
+  if (sig == _footerSig) return;
+  _footerSig = sig;
+
+  const uint16_t c = m.stale ? theme::goldMute : theme::grey;
+  textBox(padX, footerY, contentW / 2, footerH, theme::bg, FONT_BODY, c, ML_DATUM,
+          left);
+  textBox(padX + contentW / 2, footerY, contentW / 2, footerH, theme::bg, FONT_BODY,
+          theme::grey, MR_DATUM, right);
+  (void)nowUtc;
+}
+
+// ---------------------------------------------------------------------------
+//  Public entry points
+// ---------------------------------------------------------------------------
+
+void HUDRenderer::update(const HudModel &m, time_t nowUtc) {
+  if (!_chromeDrawn) {
+    _tft.fillScreen(theme::bg);
+    drawChrome();
+    _contentSig = "";
+    _wifiSig = -1;
+  }
+
+  const String sig = contentSignature(m);
+  if (sig != _contentSig) {
+    _contentSig = sig;
+    drawBody(m, nowUtc);
+  }
+
+  drawWifi(m.wifiUp);
+  if (m.haveData && m.order.valid) drawCountdown(m, nowUtc);
+  drawFooter(m, nowUtc);
+}
+
+void HUDRenderer::showBoot(const char *status) {
+  invalidate();
+  _tft.fillScreen(theme::bg);
+  drawChrome();
+  textBox(padX, 120, contentW, 34, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
+          F("SUPER EARTH"));
+  textBox(padX, 158, contentW, 20, theme::bg, FONT_LABEL, theme::text, MC_DATUM,
+          F("MAJOR ORDER MONITOR"));
+  textBox(padX, 196, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
+          String(status));
+  // Next update() must repaint from scratch.
+  _chromeDrawn = false;
+}
+
+void HUDRenderer::showPortal(const char *ssid, const char *pass) {
+  invalidate();
+  _tft.fillScreen(theme::bg);
+  drawChrome();
+  textBox(padX, 60, contentW, 30, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
+          F("WIFI SETUP"));
+  textBox(padX, 104, contentW, 20, theme::bg, FONT_BODY, theme::text, MC_DATUM,
+          F("Join this network from a phone or laptop,"));
+  textBox(padX, 124, contentW, 20, theme::bg, FONT_BODY, theme::text, MC_DATUM,
+          F("then pick your WiFi in the page that opens."));
+
+  drawStatBox(padX, 160, kStatW, statH, F("NETWORK"), String(ssid), theme::gold);
+  drawStatBox(padX + kStatW + statGap, 160, kStatW, statH, F("PASSWORD"), String(pass),
+              theme::gold);
+
+  textBox(padX, 224, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
+          F("If no page opens, browse to 192.168.4.1"));
+  _chromeDrawn = false;
+}
