@@ -54,6 +54,9 @@ class HUDRenderer {
                    const String &value, uint16_t valueColor);
   void drawProgressBar(float pct, bool known);
   void drawBadge(const String &faction);
+  // Width the faction badge will occupy, including its icon. drawBadge() and
+  // the target-row layout both need it, so it lives in one place.
+  int16_t badgeWidth(const String &faction);
   // Greedy word wrap. Returns the number of lines written to `out`.
   int wrapText(const String &in, const GFXfont *font, int16_t maxW, String *out,
                int maxLines);

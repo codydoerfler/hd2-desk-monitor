@@ -34,12 +34,41 @@ def w(font, s):
     return sum(g.get(ord(c), g[0x20]) for c in s)
 
 
+def icon_dims(path="src/hud_icons.h"):
+    """{icon name: (w, h)} from the generated bitmap header."""
+    txt = open(path).read()
+    d = {}
+    for name, wh, val in re.findall(r"constexpr int16_t (\w+)(W|H) = (\d+);", txt):
+        d.setdefault(name, {})[wh] = int(val)
+    return {n: (v["W"], v["H"]) for n, v in d.items()}
+
+
+ICONS = icon_dims()
+IW = {n: wh[0] for n, wh in ICONS.items()}
+print("icons: " + ", ".join(f"{n} {w}x{h}" for n, (w, h) in sorted(ICONS.items())))
+print()
+
 # --- constants mirrored from src/config.h ---
 padX, contentR = 20, 460
 contentW = contentR - padX            # 440
 badgePadX, statGap = 9, 8
 kStatW = (contentW - statGap) // 2    # 216
 kStatInsetX = 12
+headerIconGap, badgeIconGap, badgeMaxW = 6, 5, 170
+kHeaderTextInset = IW["emblem"] + headerIconGap
+
+# Mirrors factionIcon() in hud_renderer.cpp.
+FACTION_ICON = {"automaton": "automaton", "terminid": "terminid",
+                "illuminate": "illuminate", "human": "emblemMini"}
+
+
+def badge_w(faction):
+    bw = w("FreeSansBold9pt7b", faction.upper()) + 2 * badgePadX
+    for prefix, icon in FACTION_ICON.items():
+        if faction.lower().startswith(prefix):
+            bw += IW[icon] + badgeIconGap
+            break
+    return min(bw, badgeMaxW)
 
 fail = []
 
@@ -71,12 +100,14 @@ for L in lines:
 if len(lines) > 2:
     fail.append("briefing >2 lines")
 
-print("\n=== target row: planet name vs faction badge ===")
+print("\n=== target row: planet name vs faction badge (badges now carry an icon) ===")
 nameX = padX + 80
 NAMES = ["X-45", "Meridia", "Hellmire", "Charbal-VII", "Vernen Wells",
          "Angel's Venture", "Heeth", "Mastia"]
-for faction in ["Automaton", "Terminids", "Illuminate", "Humans"]:
-    bw = min(w("FreeSansBold9pt7b", faction.upper()) + 2 * badgePadX, 150)
+for faction in ["Automaton", "Terminids", "Illuminate", "Humans", "Unknown"]:
+    bw = badge_w(faction)
+    if bw >= badgeMaxW:
+        fail.append(f"badge {faction} hits the {badgeMaxW}px cap")
     nameW = (contentR - bw - 10) - nameX
     print(f"  badge {faction.upper():<11} {bw:>3}px -> {nameW:>3}px for the name")
     for pn in NAMES:
@@ -136,8 +167,13 @@ check('"MAJOR ORDER MONITOR" @9pt bold', w("FreeSansBold9pt7b", "MAJOR ORDER MON
 check('"PLANET DATA UNAVAILABLE" @12pt', w("FreeSansBold12pt7b", "PLANET DATA UNAVAILABLE"), contentR - (padX+76))
 check('"GALAXY-WIDE OBJECTIVE" @12pt', w("FreeSansBold12pt7b", "GALAXY-WIDE OBJECTIVE"), contentR - (padX+76))
 
-print("\n=== header row ===")
-check('"SUPER EARTH" @9pt bold', w("FreeSansBold9pt7b", "SUPER EARTH"), 200)
+print("\n=== header row (emblem + label) ===")
+se = w("FreeSansBold9pt7b", "SUPER EARTH")
+check('"SUPER EARTH" @9pt bold in its box', se, 200 - kHeaderTextInset)
+check("emblem + label vs the WiFi block", padX + kHeaderTextInset + se, contentR - 110)
 check('"OFFLINE" @9pt bold in wifi box', w("FreeSansBold9pt7b", "OFFLINE"), 110 - (2 * 5 + 6))
+check("emblem height in the 15px header row", ICONS["emblem"][1], 15)
+for n in ("automaton", "terminid", "illuminate", "emblemMini"):
+    check(f'badge icon "{n}" height', ICONS[n][1], 22 - 2)
 
 print("\n" + ("ALL LAYOUT CHECKS PASSED" if not fail else "FAILURES:\n  " + "\n  ".join(fail)))

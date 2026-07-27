@@ -32,6 +32,36 @@ BODY, LABEL, VALUE, DISPLAY = ("FreeSans9pt7b", "FreeSansBold9pt7b",
                                "FreeSansBold12pt7b", "FreeSansBold18pt7b")
 
 
+def load_icons(path="src/hud_icons.h"):
+    """Parse the generated 1-bit icons into {name: (w, h, rows-of-bits)}."""
+    txt = open(path).read()
+    dims = {}
+    for name, wh, val in re.findall(r"constexpr int16_t (\w+)(W|H) = (\d+);", txt):
+        dims.setdefault(name, {})[wh] = int(val)
+    out = {}
+    for name, blob in re.findall(
+            r"static const uint8_t (\w+)\[\] PROGMEM = \{(.*?)\};", txt, re.S):
+        by = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", blob)]
+        w, h = dims[name]["W"], dims[name]["H"]
+        stride = (w + 7) // 8
+        out[name] = (w, h, [[1 if by[j * stride + i // 8] & (0x80 >> (i & 7)) else 0
+                             for i in range(w)] for j in range(h)])
+    return out
+
+
+ICONS = load_icons()
+
+
+def faction_icon(faction):
+    """Mirrors factionIcon() in hud_renderer.cpp."""
+    f = faction.lower()
+    for prefix, name in (("automaton", "automaton"), ("terminid", "terminid"),
+                         ("illuminate", "illuminate"), ("human", "emblemMini")):
+        if f.startswith(prefix):
+            return ICONS[name]
+    return None
+
+
 def gly(f, ch):
     return F[f]["glyphs"].get(ord(ch), F[f]["glyphs"][0x20])
 
@@ -118,8 +148,10 @@ barY, barH = 172, 26
 statY, statH, statGap = 206, 46, 8
 rule3Y, warY, warH, footerY, footerH = 258, 265, 15, 289, 15
 badgeH, badgePadX = 22, 9
+headerIconGap, badgeIconGap, badgeMaxW = 6, 5, 170
 kStatW = (contentW - statGap) // 2
 kStatInsetX, kStatValueDy, kStatValueH = 12, 21, 20
+kHeaderTextInset = ICONS["emblem"][0] + headerIconGap
 
 
 def rect(x, y, w, h, c):
@@ -128,6 +160,15 @@ def rect(x, y, w, h, c):
 
 def fill(x, y, w, h, c):
     dr.rectangle([x, y, x + w - 1, y + h - 1], fill=c)
+
+
+def draw_bitmap(x, y, icon, c):
+    """Mirrors TFT_eSPI::drawBitmap() — set bits painted, clear bits skipped."""
+    w, h, rows = icon
+    for j in range(h):
+        for i in range(w):
+            if rows[j][i] and 0 <= x + i < 480 and 0 <= y + j < 320:
+                px[x + i, y + j] = c
 
 
 def chrome():
@@ -139,7 +180,10 @@ def chrome():
         fill(fx, fy, L, T, GOLD)
     for fx, fy in ((x0, y0), (x1 - T + 1, y0), (x0, y1 - L + 1), (x1 - T + 1, y1 - L + 1)):
         fill(fx, fy, T, L, GOLD)
-    text_box(padX, headerY, 200, headerH, BG, LABEL, GOLD, "ML", "SUPER EARTH")
+    text_box(padX, headerY, 200, headerH, BG, LABEL, GOLD, "ML", "SUPER EARTH",
+             kHeaderTextInset)
+    em = ICONS["emblem"]
+    draw_bitmap(padX, headerY + (headerH - em[1]) // 2, em, GOLD)
     dr.line([padX, rule1Y, padX + contentW - 1, rule1Y], fill=GOLDDIM)
 
 
@@ -174,15 +218,29 @@ def progress(pct):
                 barY + barH // 2 - (asc + des) // 2 + asc, VALUE, TEXT)
 
 
+def badge_width(faction):
+    w = text_width(LABEL, faction.upper()) + 2 * badgePadX
+    ic = faction_icon(faction)
+    if ic:
+        w += ic[0] + badgeIconGap
+    return min(w, badgeMaxW)
+
+
 def badge(faction):
     lab = faction.upper()
     c = GREEN if faction.lower() == "humans" else RED
-    w = min(text_width(LABEL, lab) + 2 * badgePadX, 150)
+    ic = faction_icon(faction)
+    w = badge_width(faction)
     x = contentR - w
     y = targetY + (targetH - badgeH) // 2
     fill(x, y, w, badgeH, BG)
     rect(x, y, w, badgeH, c)
-    text_box(x + 1, y + 1, w - 2, badgeH - 2, BG, LABEL, c, "MC", lab)
+    if ic:
+        text_box(x + 1, y + 1, w - 2, badgeH - 2, BG, LABEL, c, "ML", lab,
+                 badgePadX + ic[0] + badgeIconGap - 1)
+        draw_bitmap(x + badgePadX, y + (badgeH - ic[1]) // 2, ic, c)
+    else:
+        text_box(x + 1, y + 1, w - 2, badgeH - 2, BG, LABEL, c, "MC", lab)
 
 
 def wrap(s, f, maxw, maxlines):
@@ -211,6 +269,10 @@ kills, success, online = "393.6B", 91, "51.0K"
 
 # Mode: "order" (default), "idle" (no active Major Order), "stale" (offline).
 mode = sys.argv[1] if len(sys.argv) > 1 else "order"
+# Optional 2nd arg overrides the badge faction, to eyeball each faction icon:
+#   python3 tools/preview_hud.py order Terminids
+if len(sys.argv) > 2:
+    owner = sys.argv[2]
 
 chrome()
 wifi(mode != "stale")
@@ -243,7 +305,7 @@ dr.line([padX, rule2Y, padX + contentW - 1, rule2Y], fill=GOLDDIM)
 
 text_box(padX, targetY, 68, targetH, BG, LABEL, GREY, "ML", "TARGET")
 badge(owner)
-bw = min(text_width(LABEL, owner.upper()) + 2 * badgePadX, 150)
+bw = badge_width(owner)
 nameX = padX + 80
 nameW = (contentR - bw - 10) - nameX
 nf = VALUE if text_width(DISPLAY, planet_name) > nameW else DISPLAY
@@ -272,6 +334,9 @@ else:
 text_box(padX + contentW // 2, footerY, contentW // 2, footerH, BG, BODY, GREY, "MR",
          f"REWARD {reward} MEDALS")
 
-out = "preview.png" if mode == "order" else f"preview_{mode}.png"
+if len(sys.argv) > 2:
+    out = f"preview_{owner.lower()}.png"
+else:
+    out = "preview.png" if mode == "order" else f"preview_{mode}.png"
 img.resize((960, 640), Image.NEAREST).save(out)
 print(f"wrote {out}")

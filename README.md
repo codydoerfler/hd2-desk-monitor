@@ -288,10 +288,11 @@ library, so their measurements match the device to the pixel. Run them from the
 project root, after at least one `pio run` (they read `.pio/libdeps/...`).
 
 ```bash
-python3 tools/check_layout.py           # asserts every HUD string fits its box
-python3 tools/preview_hud.py            # -> preview.png       (active order)
-python3 tools/preview_hud.py idle       # -> preview_idle.png  (no active MO)
-python3 tools/preview_hud.py stale      # -> preview_stale.png (offline + stale)
+python3 tools/check_layout.py             # asserts every HUD string fits its box
+python3 tools/preview_hud.py              # -> preview.png       (active order)
+python3 tools/preview_hud.py idle         # -> preview_idle.png  (no active MO)
+python3 tools/preview_hud.py stale        # -> preview_stale.png (offline + stale)
+python3 tools/preview_hud.py order Humans # -> preview_humans.png (any faction badge)
 ```
 
 `check_layout.py` exercises real and worst-case strings (long planet names,
@@ -299,6 +300,25 @@ every faction badge width, each percentage label) and prints
 `ALL LAYOUT CHECKS PASSED` or a list of overflows. `preview_hud.py`
 reimplements TFT_eSPI's datum and baseline maths and rasterises the real 1-bpp
 glyph bitmaps.
+
+Both also read `src/hud_icons.h` directly, so the previews and the width checks
+follow the real icon bitmaps rather than a copy of their dimensions.
+
+### Icons
+
+The header emblem and the faction badge icons are 1-bit bitmaps in
+`src/hud_icons.h`, drawn with `TFT_eSPI::drawBitmap()`. That file is generated —
+edit the vector shape definitions in `tools/gen_icons.py` and re-run it rather
+than touching the byte arrays:
+
+```bash
+python3 tools/gen_icons.py            # rewrite src/hud_icons.h
+python3 tools/gen_icons.py --preview  # ...and dump ASCII art of each icon
+```
+
+The shapes are drawn at an 8x supersample and thresholded down to the target
+size, so changing an icon's dimensions is a one-line edit in the `ICONS` table.
+All five together are 141 bytes of flash.
 
 Between them these caught six real layout bugs before any hardware existed,
 including a `TARGET` label whose box was 2 px too narrow, so the planet name's
