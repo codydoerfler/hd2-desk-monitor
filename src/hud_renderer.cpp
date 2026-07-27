@@ -31,7 +31,7 @@ IconRef factionIcon(const String &faction) {
   if (f.startsWith("illuminate"))
     return {icons::illuminate, icons::illuminateW, icons::illuminateH};
   if (f.startsWith("human"))
-    return {icons::emblemMini, icons::emblemMiniW, icons::emblemMiniH};
+    return {icons::emblemBadge, icons::emblemBadgeW, icons::emblemBadgeH};
   return {nullptr, 0, 0};  // unknown owner: badge falls back to text only
 }
 
@@ -39,6 +39,10 @@ IconRef factionIcon(const String &faction) {
 
 // Where "SUPER EARTH" starts, once the emblem has taken its slot.
 static constexpr int16_t kHeaderTextInset = icons::emblemW + headerIconGap;
+
+// Where the planet name starts, once the crosshair has taken its slot. The
+// crosshair replaces what used to be a "TARGET" text label.
+static constexpr int16_t kTargetNameX = padX + icons::targetW + targetIconGap;
 
 // ---------------------------------------------------------------------------
 //  Small helpers
@@ -73,21 +77,15 @@ static void datumAnchor(uint8_t datum, int16_t w, int16_t h, int16_t &ax, int16_
 static String contentSignature(const HudModel &m) {
   if (!m.haveData) return F("boot");
   String s;
-  s.reserve(160);
+  s.reserve(128);
   if (!m.order.valid) {
     s = F("idle|");
   } else {
     s = m.order.title;
     s += '|';
-    s += m.order.briefing;
-    s += '|';
-    s += String(m.order.rewardAmount);
-    s += '|';
     s += m.planet.name;
     s += '|';
     s += m.planet.sector;
-    s += '|';
-    s += m.planet.biome;
     s += '|';
     s += m.planet.owner;
     s += '|';
@@ -104,8 +102,10 @@ static String contentSignature(const HudModel &m) {
   return s;
 }
 
-// Geometry of the two footer stat boxes and the value area inside them.
-static constexpr int16_t kStatW = (contentW - statGap) / 2;  // 216
+// Geometry of the three icon tiles that make up the stat row, and of the
+// two-up boxes on the WiFi setup screen.
+static constexpr int16_t kTileW = (contentW - 2 * tileGap) / 3;  // 142
+static constexpr int16_t kStatW = (contentW - statGap) / 2;      // 216
 static constexpr int16_t kStatInsetX = 12;
 static constexpr int16_t kStatValueDy = 21;
 static constexpr int16_t kStatValueH = 20;
@@ -179,51 +179,30 @@ void HUDRenderer::drawRule(int16_t y) {
   _tft.drawFastHLine(padX, y, contentW, theme::goldDim);
 }
 
-int HUDRenderer::wrapText(const String &in, const GFXfont *font, int16_t maxW,
-                          String *out, int maxLines) {
-  _tft.setFreeFont(font);
+int16_t HUDRenderer::tileX(int i) {
+  return padX + i * (kTileW + tileGap);
+}
 
-  String s = in;
-  s.replace('\n', ' ');
-  s.replace('\r', ' ');
+void HUDRenderer::drawTile(int i, const uint8_t *icon, int16_t iw, int16_t ih,
+                           const String &value, uint16_t valueColor) {
+  const int16_t x = tileX(i);
+  _tft.fillRect(x, tileY, kTileW, tileH, theme::panel);
+  _tft.drawRect(x, tileY, kTileW, tileH, theme::goldDim);
+  // The icon stands in for what used to be an ALL-CAPS label, so it is drawn
+  // at label weight rather than value weight.
+  _tft.drawBitmap(x + tileInsetX, tileY + tileIconDy, icon, iw, ih, theme::goldDim);
+  drawTileValue(i, value, valueColor);
+}
 
-  int lines = 0;
-  int i = 0;
-  String cur;
-
-  while (i < (int)s.length() && lines < maxLines) {
-    while (i < (int)s.length() && s[i] == ' ') i++;
-    int j = i;
-    while (j < (int)s.length() && s[j] != ' ') j++;
-    if (j == i) break;
-
-    const String word = s.substring(i, j);
-    const String trial = cur.length() ? cur + " " + word : word;
-
-    if (_tft.textWidth(trial.c_str()) <= maxW) {
-      cur = trial;
-      i = j;
-    } else if (cur.length() == 0) {
-      // A single word wider than the column: take it anyway rather than loop.
-      out[lines++] = word;
-      i = j;
-    } else {
-      out[lines++] = cur;
-      cur = "";
-    }
-  }
-  if (cur.length() && lines < maxLines) out[lines++] = cur;
-
-  // Anything left over gets an ellipsis on the final line.
-  while (i < (int)s.length() && s[i] == ' ') i++;
-  if (i < (int)s.length() && lines > 0) {
-    String last = out[lines - 1];
-    while (last.length() > 1 && _tft.textWidth((last + "...").c_str()) > maxW) {
-      last.remove(last.length() - 1);
-    }
-    out[lines - 1] = last + "...";
-  }
-  return lines;
+void HUDRenderer::drawTileValue(int i, const String &value, uint16_t color) {
+  // Drop a size rather than run off the edge of the tile ("EXPIRED", or a
+  // player count that has gone six digits).
+  _tft.setFreeFont(FONT_VALUE);
+  const GFXfont *font = (_tft.textWidth(value.c_str()) > kTileW - 2 * tileInsetX)
+                            ? FONT_LABEL
+                            : FONT_VALUE;
+  textBox(tileX(i) + 1, tileY + tileValueDy, kTileW - 2, tileValueH, theme::panel,
+          font, color, ML_DATUM, value, tileInsetX - 1);
 }
 
 void HUDRenderer::drawStatBox(int16_t x, int16_t y, int16_t w, int16_t h,
@@ -260,14 +239,16 @@ void HUDRenderer::drawProgressBar(float pct, bool known) {
   spr.drawRect(0, 0, contentW, barH, theme::goldDim);
 
   // Centred label, deliberately short so it stays legible where it crosses
-  // the fill/track boundary.
+  // the fill/track boundary. At 18pt it is the loudest number on the HUD,
+  // which is the point — it is the one figure worth reading from across a
+  // room.
   char buf[24];
   if (known) {
     snprintf(buf, sizeof(buf), "%d%% LIBERATED", (int)(pct + 0.5f));
   } else {
     snprintf(buf, sizeof(buf), "AWAITING TELEMETRY");
   }
-  spr.setFreeFont(FONT_VALUE);
+  spr.setFreeFont(FONT_DISPLAY);
   spr.setTextDatum(MC_DATUM);
   spr.setTextColor(known ? theme::text : theme::grey);
   spr.drawString(buf, contentW / 2, barH / 2);
@@ -378,40 +359,18 @@ void HUDRenderer::drawBody(const HudModel &m, time_t nowUtc) {
   _wifiSig = -1;  // the header repaint wiped the dot
 
   if (!m.haveData) {
-    textBox(padX, 130, contentW, 34, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
+    _tft.drawBitmap(padX + (contentW - icons::emblemLargeW) / 2, 96,
+                    icons::emblemLarge, icons::emblemLargeW, icons::emblemLargeH,
+                    theme::goldDim);
+    textBox(padX, 150, contentW, 34, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
             F("ESTABLISHING UPLINK"));
-    textBox(padX, 170, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
-            F("Contacting Super Earth High Command..."));
   } else if (m.order.valid) {
     drawOrderBody(m);
   } else {
-    drawIdleBody();
+    drawIdleBody(m);
   }
 
-  // Galactic war footer strip — drawn on every body state.
   drawRule(rule3Y);
-  if (m.war.valid) {
-    const int16_t colW = contentW / 3;
-    // Labels are kept terse on purpose: at 9pt bold, a third of the content
-    // column is only ~146px and has to hold both label and value.
-    struct {
-      const char *label;
-      String value;
-    } cols[3] = {
-        {"KILLS", formatCompact(m.war.totalKills)},
-        {"SUCCESS", String(m.war.missionSuccessRate) + "%"},
-        {"ONLINE", formatCompact(m.war.playerCount)},
-    };
-    for (int i = 0; i < 3; i++) {
-      const int16_t x = padX + i * colW;
-      _tft.setFreeFont(FONT_LABEL);
-      const int16_t lw = _tft.textWidth(cols[i].label) + 8;
-      textBox(x, warY, lw, warH, theme::bg, FONT_LABEL, theme::grey, ML_DATUM,
-              cols[i].label);
-      textBox(x + lw, warY, colW - lw - 6, warH, theme::bg, FONT_LABEL, theme::gold,
-              ML_DATUM, cols[i].value);
-    }
-  }
 
   // Force the self-updating regions to repaint into the freshly cleared area.
   _countdownSig = "";
@@ -421,73 +380,87 @@ void HUDRenderer::drawBody(const HudModel &m, time_t nowUtc) {
 }
 
 void HUDRenderer::drawOrderBody(const HudModel &m) {
-  // --- title + briefing ---------------------------------------------------
+  // --- title --------------------------------------------------------------
+  // The briefing paragraph used to sit under this. It restated the target the
+  // row below already names, so it is gone and the space went to the graphics.
   textBox(padX, titleY, contentW, titleH, theme::bg, FONT_DISPLAY, theme::gold,
           ML_DATUM, upper(m.order.title));
-
-  String lines[briefMaxLines];
-  const int n = wrapText(m.order.briefing, FONT_BODY, contentW, lines, briefMaxLines);
-  for (int i = 0; i < n; i++) {
-    textBox(padX, briefY + i * briefLineH, contentW, briefLineH, theme::bg, FONT_BODY,
-            theme::text, ML_DATUM, lines[i]);
-  }
 
   drawRule(rule2Y);
 
   // --- target planet ------------------------------------------------------
-  textBox(padX, targetY, targetLabelW, targetH, theme::bg, FONT_LABEL, theme::grey,
-          ML_DATUM, F("TARGET"));
+  _tft.drawBitmap(padX, targetY + (targetH - icons::targetH) / 2, icons::target,
+                  icons::targetW, icons::targetH, theme::gold);
 
   if (m.planet.valid) {
     drawBadge(m.planet.owner);
 
-    // Width left for the planet name between the label and the badge.
-    const int16_t nameW = (contentR - badgeWidth(m.planet.owner) - 10) - targetNameX;
+    // Width left for the planet name between the crosshair and the badge.
+    const int16_t rowR = contentR - badgeWidth(m.planet.owner) - badgeGap;
+    const int16_t availW = rowR - kTargetNameX;
 
-    // Drop a size if the name doesn't fit (e.g. "Charbal-VII").
+    // Drop a size if the name doesn't fit (e.g. "Angel's Venture").
     _tft.setFreeFont(FONT_DISPLAY);
-    const GFXfont *nameFont =
-        (_tft.textWidth(m.planet.name.c_str()) > nameW) ? FONT_VALUE : FONT_DISPLAY;
-    textBox(targetNameX, targetY, nameW, targetH, theme::bg, nameFont, theme::text,
+    const GFXfont *nameFont = FONT_DISPLAY;
+    int16_t nameW = _tft.textWidth(m.planet.name.c_str());
+    if (nameW > availW) {
+      nameFont = FONT_VALUE;
+      _tft.setFreeFont(FONT_VALUE);
+      nameW = _tft.textWidth(m.planet.name.c_str());
+    }
+    textBox(kTargetNameX, targetY, availW, targetH, theme::bg, nameFont, theme::text,
             ML_DATUM, m.planet.name);
 
-    String sub = m.planet.sector.length() ? m.planet.sector + " SECTOR" : String("");
-    if (m.planet.biome.length()) {
-      if (sub.length()) sub += "  -  ";
-      sub += m.planet.biome;
+    // Sector, folded down from a full subtitle line to a small grey tag on the
+    // same row — and dropped outright when a long planet name has taken the
+    // space. It is flavour, not data, so losing it costs nothing.
+    if (m.planet.sector.length()) {
+      const String tag = upper(m.planet.sector);
+      _tft.setFreeFont(FONT_BODY);
+      const int16_t tagW = _tft.textWidth(tag.c_str());
+      if (nameW + tagGap + tagW <= availW) {
+        textBox(rowR - tagW, targetY, tagW, targetH, theme::bg, FONT_BODY,
+                theme::grey, MR_DATUM, tag);
+      }
     }
-    textBox(padX, subY, contentW, subH, theme::bg, FONT_BODY, theme::grey, ML_DATUM,
-            sub);
 
     drawProgressBar(m.planet.liberation, true);
   } else {
     // The order has no planet-scoped task, or the planet lookup failed.
-    textBox(targetNameX, targetY, contentR - targetNameX, targetH, theme::bg,
+    textBox(kTargetNameX, targetY, contentR - kTargetNameX, targetH, theme::bg,
             FONT_VALUE, theme::grey, ML_DATUM,
             m.order.planetIndex >= 0 ? F("PLANET DATA UNAVAILABLE")
                                      : F("GALAXY-WIDE OBJECTIVE"));
     drawProgressBar(0.0f, false);
   }
 
-  // --- footer stat boxes --------------------------------------------------
-  // Box 1's value is painted by drawCountdown(); pass a placeholder here.
-  drawStatBox(padX, statY, kStatW, statH, F("TIME LEFT"), "", theme::gold);
-  drawStatBox(padX + kStatW + statGap, statY, kStatW, statH, F("PLAYERS"),
-              m.planet.valid ? formatCompact(m.planet.playerCount) : String("--"),
-              theme::gold);
+  // --- icon tiles ---------------------------------------------------------
+  // Tile 0's value is painted by drawCountdown(); pass a placeholder here.
+  drawTile(0, icons::clock, icons::clockW, icons::clockH, "", theme::gold);
+  drawTile(1, icons::divers, icons::diversW, icons::diversH,
+           m.planet.valid ? formatCompact(m.planet.playerCount) : String("--"),
+           theme::gold);
+  drawTile(2, icons::skull, icons::skullW, icons::skullH,
+           m.war.valid ? formatCompact(m.war.totalKills) : String("--"), theme::gold);
 }
 
-void HUDRenderer::drawIdleBody() {
-  // Two lines: "NO ACTIVE MAJOR ORDER" on one line at 18pt is 463px, wider
-  // than the 440px content column.
-  textBox(padX, 112, contentW, 32, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
-          F("NO ACTIVE"));
-  textBox(padX, 146, contentW, 32, theme::bg, FONT_DISPLAY, theme::gold, MC_DATUM,
-          F("MAJOR ORDER"));
-  textBox(padX, 188, contentW, 20, theme::bg, FONT_BODY, theme::text, MC_DATUM,
-          F("Stand by for orders from Super Earth High Command."));
-  textBox(padX, 212, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
-          F("Managed democracy does not sleep."));
+void HUDRenderer::drawIdleBody(const HudModel &m) {
+  // With no order to show, the emblem becomes the centrepiece and the galactic
+  // war totals take over the tiles.
+  _tft.drawBitmap(padX + (contentW - icons::emblemLargeW) / 2, 92, icons::emblemLarge,
+                  icons::emblemLargeW, icons::emblemLargeH, theme::goldDim);
+  // At 18pt this line is 463px, wider than the 440px content column, so it is
+  // set at value size.
+  textBox(padX, 146, contentW, 28, theme::bg, FONT_VALUE, theme::gold, MC_DATUM,
+          F("NO ACTIVE MAJOR ORDER"));
+
+  drawTile(0, icons::divers, icons::diversW, icons::diversH,
+           m.war.valid ? formatCompact(m.war.playerCount) : String("--"), theme::gold);
+  drawTile(1, icons::skull, icons::skullW, icons::skullH,
+           m.war.valid ? formatCompact(m.war.totalKills) : String("--"), theme::gold);
+  drawTile(2, icons::check, icons::checkW, icons::checkH,
+           m.war.valid ? String(m.war.missionSuccessRate) + "%" : String("--"),
+           theme::gold);
 }
 
 void HUDRenderer::drawCountdown(const HudModel &m, time_t nowUtc) {
@@ -502,9 +475,7 @@ void HUDRenderer::drawCountdown(const HudModel &m, time_t nowUtc) {
   if (s == _countdownSig) return;
   _countdownSig = s;
 
-  const uint16_t c = (s == "EXPIRED") ? theme::red : theme::gold;
-  textBox(padX + 1, statY + kStatValueDy, kStatW - 2, kStatValueH, theme::panel,
-          FONT_VALUE, c, ML_DATUM, s, kStatInsetX - 1);
+  drawTileValue(0, s, (s == "EXPIRED") ? theme::red : theme::gold);
 }
 
 void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
@@ -512,30 +483,43 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
   if (!m.haveData) {
     left = "NO DATA YET";
   } else {
-    char t[16] = "--:--";
+    char t[8] = "--:--";
     if (m.lastSuccess > 0) {
+      // Shift the epoch, then read it back as if it were UTC: that yields
+      // local wall-clock time without depending on a TZ database being
+      // present, and without touching the countdown, which is a duration.
       struct tm tmv;
-      time_t ls = m.lastSuccess;
+      time_t ls = m.lastSuccess + (time_t)m.utcOffsetMin * 60;
       gmtime_r(&ls, &tmv);
       snprintf(t, sizeof(t), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
     }
-    left = (m.stale ? String("STALE - LAST ") : String("SYNCED ")) + t + " UTC";
+    left = (m.stale ? String("STALE - LAST ") : String("SYNCED ")) + t;
   }
 
-  String right;
+  // Reward, as a medal icon and a bare number — "REWARD n MEDALS" spelled out
+  // was the single wordiest thing on the HUD for one integer of information.
+  String reward;
   if (m.haveData && m.order.valid && m.order.rewardAmount > 0) {
-    right = "REWARD " + String(m.order.rewardAmount) + " MEDALS";
+    reward = String(m.order.rewardAmount);
   }
 
-  const String sig = left + "|" + right;
+  const String sig = left + "|" + reward + "|" + (m.stale ? "1" : "0");
   if (sig == _footerSig) return;
   _footerSig = sig;
 
-  const uint16_t c = m.stale ? theme::goldMute : theme::grey;
-  textBox(padX, footerY, contentW / 2, footerH, theme::bg, FONT_BODY, c, ML_DATUM,
-          left);
-  textBox(padX + contentW / 2, footerY, contentW / 2, footerH, theme::bg, FONT_BODY,
-          theme::grey, MR_DATUM, right);
+  textBox(padX, footerY, contentW / 2, footerH, theme::bg, FONT_BODY,
+          m.stale ? theme::goldMute : theme::grey, ML_DATUM, left);
+
+  _tft.setFreeFont(FONT_BODY);
+  const int16_t rewardW =
+      reward.length() ? icons::medalW + footerIconGap + _tft.textWidth(reward.c_str())
+                      : 0;
+  textBox(contentR - contentW / 2, footerY, contentW / 2, footerH, theme::bg,
+          FONT_BODY, theme::gold, MR_DATUM, reward);
+  if (reward.length()) {
+    _tft.drawBitmap(contentR - rewardW, footerY + (footerH - icons::medalH) / 2,
+                    icons::medal, icons::medalW, icons::medalH, theme::gold);
+  }
   (void)nowUtc;
 }
 
@@ -585,11 +569,11 @@ void HUDRenderer::showPortal(const char *ssid, const char *pass) {
   textBox(padX, 104, contentW, 20, theme::bg, FONT_BODY, theme::text, MC_DATUM,
           F("Join this network from a phone or laptop,"));
   textBox(padX, 124, contentW, 20, theme::bg, FONT_BODY, theme::text, MC_DATUM,
-          F("then pick your WiFi in the page that opens."));
+          F("then set WiFi and UTC offset in the page that opens."));
 
-  drawStatBox(padX, 160, kStatW, statH, F("NETWORK"), String(ssid), theme::gold);
-  drawStatBox(padX + kStatW + statGap, 160, kStatW, statH, F("PASSWORD"), String(pass),
-              theme::gold);
+  drawStatBox(padX, statY, kStatW, statH, F("NETWORK"), String(ssid), theme::gold);
+  drawStatBox(padX + kStatW + statGap, statY, kStatW, statH, F("PASSWORD"),
+              String(pass), theme::gold);
 
   textBox(padX, 224, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
           F("If no page opens, browse to 192.168.4.1"));

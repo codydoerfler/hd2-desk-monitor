@@ -51,4 +51,8 @@ struct HudModel {
   bool wifiUp = false;
   time_t lastSuccess = 0;     // UTC epoch of the last good poll
   uint32_t failCount = 0;
+
+  // Minutes to add to UTC when a clock time is *displayed*. Set from NVS at
+  // boot (see main.cpp); durations such as the countdown ignore it.
+  int16_t utcOffsetMin = 0;
 };

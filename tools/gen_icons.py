@@ -41,7 +41,12 @@ def quad(p0, p1, p2, n=24):
 
 
 class Canvas:
-    """A supersampled 'L' canvas that takes device-pixel coordinates."""
+    """A supersampled 'L' canvas that takes device-pixel coordinates.
+
+    Every primitive takes an optional `v`: 255 paints, 0 erases. Erasing is how
+    the interior details (skull eye sockets, the medal's star) are cut out of a
+    filled silhouette.
+    """
 
     def __init__(self, w, h):
         self.w, self.h = w, h
@@ -51,26 +56,26 @@ class Canvas:
     def _p(self, pts):
         return [(x * S, y * S) for x, y in pts]
 
-    def poly(self, pts):
-        self.dr.polygon(self._p(pts), fill=255)
+    def poly(self, pts, v=255):
+        self.dr.polygon(self._p(pts), fill=v)
 
-    def line(self, pts, width=1.0):
-        self.dr.line(self._p(pts), fill=255, width=max(1, round(width * S)),
+    def line(self, pts, width=1.0, v=255):
+        self.dr.line(self._p(pts), fill=v, width=max(1, round(width * S)),
                      joint="curve")
 
-    def ellipse(self, cx, cy, rx, ry, width=0.0, fill_only=False):
+    def ellipse(self, cx, cy, rx, ry, width=0.0, fill_only=False, v=255):
         box = [(cx - rx) * S, (cy - ry) * S, (cx + rx) * S, (cy + ry) * S]
         if width and not fill_only:
-            self.dr.ellipse(box, outline=255, width=max(1, round(width * S)))
+            self.dr.ellipse(box, outline=v, width=max(1, round(width * S)))
         else:
-            self.dr.ellipse(box, fill=255)
+            self.dr.ellipse(box, fill=v)
 
-    def rect(self, x0, y0, x1, y1, width=0.0):
+    def rect(self, x0, y0, x1, y1, width=0.0, v=255):
         box = [x0 * S, y0 * S, x1 * S, y1 * S]
         if width:
-            self.dr.rectangle(box, outline=255, width=max(1, round(width * S)))
+            self.dr.rectangle(box, outline=v, width=max(1, round(width * S)))
         else:
-            self.dr.rectangle(box, fill=255)
+            self.dr.rectangle(box, fill=v)
 
     def bits(self):
         """Downsample + threshold to a list of rows of 0/1."""
@@ -135,44 +140,138 @@ def super_earth(c):
 def automaton(c):
     """Angular head: boxy shell, two-slot visor, stalk antenna with a nub."""
     W, H = c.w, c.h
-    c.rect(2, 4, W - 2, H, width=1)              # head shell, 10x10
-    c.rect(4, 8, 6, 10)                          # visor slot, left
-    c.rect(W - 6, 8, W - 4, 10)                  # visor slot, right
-    c.rect(W / 2 - 1, 1, W / 2 + 1, 5)           # antenna stalk
-    c.rect(W / 2 - 2, 0, W / 2 + 2, 1)           # antenna nub
+    t = max(1.0, W * 0.10)
+    c.rect(W * 0.14, H * 0.28, W * 0.86, H * 0.99, width=t)  # head shell
+    c.rect(W * 0.28, H * 0.55, W * 0.44, H * 0.71)           # visor slot, left
+    c.rect(W * 0.56, H * 0.55, W * 0.72, H * 0.71)           # visor slot, right
+    c.rect(W * 0.45, H * 0.08, W * 0.55, H * 0.30)           # antenna stalk
+    c.rect(W * 0.36, H * 0.00, W * 0.64, H * 0.10)           # antenna nub
 
 
 def terminid(c):
     """Bug: fat abdomen, small head, mandibles and three legs a side."""
     W, H = c.w, c.h
     cx = W / 2.0
-    c.ellipse(cx, 9.5, 3.5, 3.5, fill_only=True)  # abdomen
-    c.ellipse(cx, 4.5, 2, 2, fill_only=True)      # head
+    t = max(1.0, W * 0.062)
+    c.ellipse(cx, H * 0.68, W * 0.235, H * 0.235, fill_only=True)  # abdomen
+    c.ellipse(cx, H * 0.32, W * 0.145, H * 0.145, fill_only=True)  # head
     for s in (1, -1):
         # mandibles, swept up and out from the head
-        c.line(quad((cx + s * 1.5, 3.0), (cx + s * 2.5, 1.0),
-                    (cx + s * 3.5, 0.5)), width=1)
+        c.line(quad((cx + s * W * 0.11, H * 0.21), (cx + s * W * 0.18, H * 0.07),
+                    (cx + s * W * 0.25, H * 0.035)), width=t)
         # legs
-        c.line([(cx + s * 2.5, 7.5), (cx + s * 5.5, 6.5)], width=1)
-        c.line([(cx + s * 3.0, 9.5), (cx + s * 6.0, 9.5)], width=1)
-        c.line([(cx + s * 2.5, 11.5), (cx + s * 5.0, 13.0)], width=1)
+        c.line([(cx + s * W * 0.20, H * 0.55), (cx + s * W * 0.44, H * 0.45)], width=t)
+        c.line([(cx + s * W * 0.22, H * 0.68), (cx + s * W * 0.47, H * 0.68)], width=t)
+        c.line([(cx + s * W * 0.20, H * 0.81), (cx + s * W * 0.41, H * 0.94)], width=t)
 
 
 def illuminate(c):
     """Eye/orb: a wide ring around a filled pupil."""
     W, H = c.w, c.h
     cx, cy = W / 2.0, H / 2.0
-    c.ellipse(cx, cy, 6, 4, width=1)             # outer ring
-    c.ellipse(cx, cy, 2, 2, fill_only=True)      # pupil
+    c.ellipse(cx, cy, W * 0.43, H * 0.29, width=max(1.0, W * 0.085))  # outer ring
+    c.ellipse(cx, cy, W * 0.145, H * 0.145, fill_only=True)           # pupil
+
+
+def target(c):
+    """Crosshair: a ring with four ticks and a centre pip. Replaces the word
+    "TARGET" on the target row."""
+    W, H = c.w, c.h
+    cx, cy = W / 2.0, H / 2.0
+    t = max(1.0, W * 0.085)
+    c.ellipse(cx, cy, W * 0.30, H * 0.30, width=t)
+    c.ellipse(cx, cy, W * 0.07, H * 0.07, fill_only=True)
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        c.line([(cx + dx * W * 0.38, cy + dy * H * 0.38),
+                (cx + dx * W * 0.50, cy + dy * H * 0.50)], width=t)
+
+
+def clock(c):
+    """Time remaining: a ring with two hands at ~10:10-ish, i.e. one up and one
+    out to the right so both stay distinct at 24px."""
+    W, H = c.w, c.h
+    cx, cy = W / 2.0, H / 2.0
+    t = max(1.0, W * 0.095)
+    c.ellipse(cx, cy, W * 0.44, H * 0.44, width=t)
+    c.line([(cx, cy), (cx, cy - H * 0.27)], width=t)             # minute hand
+    c.line([(cx, cy), (cx + W * 0.19, cy + H * 0.08)], width=t)  # hour hand
+    c.ellipse(cx, cy, W * 0.06, H * 0.06, fill_only=True)        # spindle
+
+
+def divers(c):
+    """Player count: two head-and-shoulders figures, the front one larger. The
+    back figure is cut back out of the front one so the pair reads as two
+    bodies rather than one blob."""
+    W, H = c.w, c.h
+
+    W2, H2 = c.w, c.h
+
+    def figure(cx, headY, r, top, base, wTop, wBase, v=255, g=0.0):
+        """Head circle plus a tapered shoulders/torso trapezoid. `g` inflates
+        the whole shape, which is how the gap between the two is cut."""
+        c.ellipse(cx, headY, r + g, r + g, fill_only=True, v=v)
+        c.poly([(cx - wBase - g, base + g), (cx - wTop - g, top),
+                (cx + wTop + g, top), (cx + wBase + g, base + g)], v=v)
+
+    # Back figure first, then a gap punched around the front one, then the
+    # front one drawn into that gap.
+    figure(W2 * 0.72, H2 * 0.26, W2 * 0.105, H2 * 0.38, H2 * 0.94,
+           W2 * 0.105, W2 * 0.155)
+    for v, g in ((0, 1.3), (255, 0.0)):
+        figure(W2 * 0.38, H2 * 0.30, W2 * 0.130, H2 * 0.45, H2 * 1.00,
+               W2 * 0.130, W2 * 0.190, v=v, g=g)
+
+
+def skull(c):
+    """Kill count: cranium, jaw block, sunken eye sockets and a nose notch."""
+    W, H = c.w, c.h
+    cx = W / 2.0
+    c.ellipse(cx, H * 0.42, W * 0.40, H * 0.36, fill_only=True)  # cranium
+    c.rect(W * 0.30, H * 0.60, W * 0.70, H * 0.92)               # jaw
+    for s in (1, -1):
+        c.ellipse(cx + s * W * 0.18, H * 0.42, W * 0.13, H * 0.14,
+                  fill_only=True, v=0)                           # eye socket
+    c.poly([(cx, H * 0.52), (cx + W * 0.07, H * 0.66), (cx - W * 0.07, H * 0.66)],
+           v=0)                                                  # nose notch
+    c.rect(cx - W * 0.015, H * 0.74, cx + W * 0.015, H * 0.92, v=0)  # teeth gap
+
+
+def medal(c):
+    """Reward: two ribbon bands above a disc with a four-point star cut out."""
+    W, H = c.w, c.h
+    cx = W / 2.0
+    c.poly([(W * 0.20, 0), (W * 0.40, 0), (W * 0.58, H * 0.42), (W * 0.40, H * 0.48)])
+    c.poly([(W * 0.80, 0), (W * 0.60, 0), (W * 0.42, H * 0.42), (W * 0.60, H * 0.48)])
+    c.ellipse(cx, H * 0.70, W * 0.29, H * 0.29, fill_only=True)
+    # Four-point star punched out of the disc, same concave shape as the
+    # emblem's body so the icon set stays consistent.
+    r, k = W * 0.20, W * 0.055
+    c.poly([(cx, H * 0.70 - r), (cx + k, H * 0.70 - k), (cx + r, H * 0.70),
+            (cx + k, H * 0.70 + k), (cx, H * 0.70 + r), (cx - k, H * 0.70 + k),
+            (cx - r, H * 0.70), (cx - k, H * 0.70 - k)], v=0)
+
+
+def check(c):
+    """Mission success rate: a plain thick tick."""
+    W, H = c.w, c.h
+    c.line([(W * 0.12, H * 0.52), (W * 0.40, H * 0.80), (W * 0.90, H * 0.16)],
+           width=max(1.0, W * 0.155))
 
 
 # name, width, height, draw fn
 ICONS = [
-    ("emblem",     24, 13, super_earth),
-    ("emblemMini", 16,  9, super_earth),
-    ("automaton",  14, 14, automaton),
-    ("terminid",   14, 14, terminid),
-    ("illuminate", 14, 14, illuminate),
+    ("emblem",      24, 13, super_earth),   # header row
+    ("emblemBadge", 26, 14, super_earth),   # faction badge, "HUMANS"
+    ("emblemLarge", 72, 39, super_earth),   # idle-screen centrepiece
+    ("automaton",   20, 20, automaton),
+    ("terminid",    20, 20, terminid),
+    ("illuminate",  20, 20, illuminate),
+    ("target",      20, 20, target),
+    ("clock",       24, 24, clock),
+    ("divers",      24, 24, divers),
+    ("skull",       24, 24, skull),
+    ("check",       24, 24, check),
+    ("medal",       14, 14, medal),         # footer reward
 ]
 
 

@@ -1,8 +1,10 @@
 # Helldivers 2 — Major Order Desk Monitor
 
 A standalone, always-on desk display that shows the current Helldivers 2 Major
-Order: the briefing, the target planet, its liberation percentage, time
-remaining, and live player counts. It polls
+Order: the target planet, its liberation percentage, time remaining, and live
+player counts. The layout is deliberately icon-led rather than wordy — there is
+no briefing paragraph, and the stat tiles carry a glyph where a label would
+otherwise sit. It polls
 [api.helldivers2.dev](https://api.helldivers2.dev) every five minutes and draws
 a Super Earth command-terminal HUD on a 4" 480x320 LCD.
 
@@ -94,8 +96,8 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 14.7 % (48 KB static)**, **Flash 35.6 %
-(1.1 MB)**. The `huge_app.csv` partition table is used because the default
+Resource usage as built: **RAM 14.7 % (48,236 bytes static)**, **Flash 35.7 %
+(1,123,089 bytes)**. The `huge_app.csv` partition table is used because the default
 1.3 MB app partition overflows once TLS, WiFiManager and TFT_eSPI are linked
 in. OTA is out of scope, so giving up the second app slot costs nothing.
 
@@ -111,10 +113,13 @@ captive portal and shows setup instructions on screen:
    password **`helldive`**.
 2. A configuration page should open automatically. If it doesn't, browse to
    **`http://192.168.4.1`**.
-3. Pick your home network, enter its password, save.
-4. The device reboots, connects, and starts polling.
+3. Pick your home network and enter its password.
+4. Fill in **UTC offset in hours** with your timezone — see
+   [Local time](#local-time) below. Leave it at `0` to display UTC.
+5. Save. The device reboots, connects, and starts polling.
 
-Credentials are stored in the ESP32's NVS flash and survive power cycles.
+Credentials and the offset are stored in the ESP32's NVS flash and survive
+power cycles.
 
 If nobody configures it within **5 minutes**, the portal times out and the
 device reboots — so an unattended unit recovers on its own after a router
@@ -155,6 +160,46 @@ Both headers are sent on every request; the API returns HTTP 400 without them.
 `your-user` with your actual GitHub handle, or use an email address, so the
 API maintainers can reach you if this client misbehaves. This is the courtesy
 that keeps a free community API open.
+
+### Local time
+
+The device clock runs on UTC. A fixed offset is applied only where a **clock
+time** is drawn — that is the footer, `SYNCED hh:mm` and `STALE - LAST hh:mm`.
+Durations are never shifted: the Major Order countdown is a length of time, not
+a wall-clock reading, so it is identical in every timezone.
+
+Set it in the WiFi setup portal, in the **UTC offset in hours** field below the
+network picker. Accepted forms:
+
+| Typed | Means |
+|---|---|
+| `0` | UTC (the default on a freshly flashed unit) |
+| `-6` | UTC−06:00 |
+| `+1` or `1` | UTC+01:00 |
+| `+5:30` | UTC+05:30 |
+| `5.75` | UTC+05:45, for people who write it as a decimal |
+
+The value is stored in NVS as a plain minute count (`hd2` / `utcOffMin`) and
+survives reboots and reflashing, so it is set once and never recompiled. On a
+normal boot the portal doesn't run and the saved value is used as-is; when the
+portal does run, the field is pre-filled with the current setting. A value that
+doesn't parse, or one outside UTC−12:00 … UTC+14:00, is logged over serial and
+ignored rather than reset to UTC — a typo can't silently wipe a good setting.
+
+**To change it later**, wipe the WiFi credentials (see above) so the portal
+runs again, or set the compile-time fallback in `src/config.h`:
+
+```cpp
+static const int16_t kUtcOffsetMinutesDefault = 0;   // minutes to add to UTC
+```
+
+That constant is only the factory default used until the portal saves one; once
+a value is in NVS it wins.
+
+> **There is no DST handling, deliberately.** This is a fixed offset, not a
+> timezone database — twice a year the footer will be an hour off until you
+> re-enter it. Carrying the IANA rules for one `hh:mm` string on screen is not
+> a trade worth making on a 4 MB part.
 
 ### Poll interval
 
@@ -222,9 +267,9 @@ Neither includes the other's header.
 
 | Endpoint | Used for |
 |---|---|
-| `GET /api/v1/assignments` | Title, briefing, tasks, reward, expiration, target planet index |
-| `GET /api/v1/planets/{index}` | Name, sector, biome, current owner, health/maxHealth, player count |
-| `GET /api/v1/war` | Total kills, mission success rate, galaxy-wide player count (optional row) |
+| `GET /api/v1/assignments` | Title, reward, expiration, target planet index (the briefing is still parsed into the model but no longer drawn) |
+| `GET /api/v1/planets/{index}` | Name, sector, current owner, health/maxHealth, player count |
+| `GET /api/v1/war` | Total kills, mission success rate, galaxy-wide player count (fills the tiles on the idle screen) |
 
 Each response is parsed with ArduinoJson v7 through a
 `DeserializationOption::Filter`, so only the handful of fields actually used
@@ -257,11 +302,11 @@ connection) and sprites (~27 KB peak).
 
 | Situation | Behaviour |
 |---|---|
-| No active Major Order (empty array) | Idle screen: "NO ACTIVE / MAJOR ORDER" plus the war stats row. Not treated as an error. |
+| No active Major Order (empty array) | Idle screen: the large Super Earth emblem, "NO ACTIVE MAJOR ORDER", and the war totals in the three tiles. Not treated as an error. |
 | Multiple simultaneous orders | The first is shown. |
 | Planet fetch fails, index unchanged | Previous planet data is reused. |
-| War fetch fails | Previous war stats are kept; the row never blanks. |
-| API or WiFi failure | The last good data stays on screen. The footer switches to a dimmed `STALE - LAST hh:mm UTC`. |
+| War fetch fails | Previous war stats are kept; the tiles never blank. |
+| API or WiFi failure | The last good data stays on screen. The footer switches to a dimmed `STALE - LAST hh:mm`. |
 | Repeated failures | Exponential backoff, 15 s doubling to a 10-minute ceiling. |
 | WiFi drops | Header indicator turns red `OFFLINE`; a reconnect is nudged every 15 s. |
 | Captive portal ignored | Reboots after 5 minutes and retries the saved network. |
@@ -277,6 +322,11 @@ The countdown to the Major Order deadline is driven by **NTP**
 reports a date in 1972 — so it is ignored entirely. Expiration timestamps are
 parsed from ISO 8601 with Howard Hinnant's `days_from_civil` algorithm rather
 than `mktime`/`timegm`, which avoids any dependence on the device timezone.
+
+Everything internal stays in UTC. The displayed footer time is produced by
+adding the configured offset to the epoch and reading it back with
+`gmtime_r()`, which yields local wall-clock time without needing a `TZ` string
+or a timezone database on the device. See [Local time](#local-time).
 
 ---
 
@@ -306,23 +356,36 @@ follow the real icon bitmaps rather than a copy of their dimensions.
 
 ### Icons
 
-The header emblem and the faction badge icons are 1-bit bitmaps in
-`src/hud_icons.h`, drawn with `TFT_eSPI::drawBitmap()`. That file is generated —
-edit the vector shape definitions in `tools/gen_icons.py` and re-run it rather
-than touching the byte arrays:
+Every glyph on the HUD is a 1-bit bitmap in `src/hud_icons.h`, drawn with
+`TFT_eSPI::drawBitmap()`. That file is generated — edit the vector shape
+definitions in `tools/gen_icons.py` and re-run it rather than touching the byte
+arrays:
 
 ```bash
 python3 tools/gen_icons.py            # rewrite src/hud_icons.h
 python3 tools/gen_icons.py --preview  # ...and dump ASCII art of each icon
 ```
 
+| Icon | Size | Where |
+|---|---|---|
+| `emblem` | 24x13 | Header, beside "SUPER EARTH" |
+| `emblemBadge` | 26x14 | Faction badge, when Humans hold the planet |
+| `emblemLarge` | 72x39 | Centrepiece on the idle and boot screens |
+| `automaton` `terminid` `illuminate` | 20x20 | Faction badge |
+| `target` | 20x20 | Target row — replaces the old `TARGET` text label |
+| `clock` | 24x24 | Tile 1, time remaining |
+| `divers` | 24x24 | Tile 2, players on the target planet / online galaxy-wide |
+| `skull` | 24x24 | Tile 3, total kills |
+| `check` | 24x24 | Idle tile 3, mission success rate |
+| `medal` | 14x14 | Footer, Major Order reward |
+
 The shapes are drawn at an 8x supersample and thresholded down to the target
 size, so changing an icon's dimensions is a one-line edit in the `ICONS` table.
-All five together are 141 bytes of flash.
+All twelve together are 1,002 bytes of flash.
 
-Between them these caught six real layout bugs before any hardware existed,
-including a `TARGET` label whose box was 2 px too narrow, so the planet name's
-background fill painted over it. If you change anything in
+Between them the two tools caught six real layout bugs before any hardware
+existed, including a text label whose box was 2 px too narrow, so the planet
+name's background fill painted over it. If you change anything in
 `namespace layout`, run both.
 
 ---
@@ -350,10 +413,17 @@ enclosure design.
 
 ## Layout reference
 
-`mockup_35inch.png` is the 1440x960 design reference. It is exactly 3× the
-480x320 target, so **mockup pixel ÷ 3 = device pixel** — that relationship is
-what every constant in `namespace layout` was derived from. If you redesign the
-HUD, keeping the mockup at 3× makes the conversion trivial.
+`mockup_35inch.png` is the 1440x960 design reference the original grid came
+from. It is exactly 3× the 480x320 target, so **mockup pixel ÷ 3 = device
+pixel**. If you redesign the HUD, keeping the mockup at 3× makes the conversion
+trivial.
+
+The current row grid no longer matches that mockup one-for-one — dropping the
+briefing paragraph and the sector/biome subtitle freed roughly 60 px, which
+went into a taller target row, an 18 pt progress-bar label and the 68 px stat
+tiles. `tools/check_layout.py` asserts the rows still stack without colliding,
+so the constants in `namespace layout` are the source of truth now, not the
+mockup.
 
 ## Credits
 

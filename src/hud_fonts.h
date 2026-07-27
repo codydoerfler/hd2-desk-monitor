@@ -16,7 +16,7 @@
 
 #include <TFT_eSPI.h>
 
-#define FONT_BODY    (&FreeSans9pt7b)       // briefing, subtext, footer
+#define FONT_BODY    (&FreeSans9pt7b)       // sector tag, footer, status lines
 #define FONT_LABEL   (&FreeSansBold9pt7b)   // small caps labels, faction badge
 #define FONT_VALUE   (&FreeSansBold12pt7b)  // stat values, progress bar label
 #define FONT_DISPLAY (&FreeSansBold18pt7b)  // MAJOR ORDER title, planet name

@@ -56,7 +56,7 @@ def faction_icon(faction):
     """Mirrors factionIcon() in hud_renderer.cpp."""
     f = faction.lower()
     for prefix, name in (("automaton", "automaton"), ("terminid", "terminid"),
-                         ("illuminate", "illuminate"), ("human", "emblemMini")):
+                         ("illuminate", "illuminate"), ("human", "emblemBadge")):
         if f.startswith(prefix):
             return ICONS[name]
     return None
@@ -140,18 +140,18 @@ frameX = frameY = 8
 frameW, frameH = 464, 304
 bracketLen, bracketThick = 28, 3
 headerY, headerH = 18, 15
-rule1Y, titleY, titleH = 39, 46, 30
-briefY, briefLineH = 80, 16
-rule2Y, targetY, targetH = 114, 119, 30
-subY, subH = 152, 15
-barY, barH = 172, 26
-statY, statH, statGap = 206, 46, 8
-rule3Y, warY, warH, footerY, footerH = 258, 265, 15, 289, 15
-badgeH, badgePadX = 22, 9
-headerIconGap, badgeIconGap, badgeMaxW = 6, 5, 170
-kStatW = (contentW - statGap) // 2
-kStatInsetX, kStatValueDy, kStatValueH = 12, 21, 20
+rule1Y, titleY, titleH = 39, 45, 32
+rule2Y, targetY, targetH = 84, 90, 34
+barY, barH = 132, 36
+tileY, tileH, tileGap = 180, 68, 7
+rule3Y, footerY, footerH = 260, 285, 15
+badgeH, badgePadX = 30, 9
+headerIconGap, badgeIconGap, badgeMaxW = 6, 6, 175
+targetIconGap, tagGap, badgeGap, footerIconGap = 8, 16, 12, 6
+tileInsetX, tileIconDy, tileValueDy, tileValueH = 12, 9, 38, 24
+kTileW = (contentW - 2 * tileGap) // 3
 kHeaderTextInset = ICONS["emblem"][0] + headerIconGap
+kTargetNameX = padX + ICONS["target"][0] + targetIconGap
 
 
 def rect(x, y, w, h, c):
@@ -196,13 +196,19 @@ def wifi(up):
     dr.ellipse([cx - dotR, cy - dotR, cx + dotR, cy + dotR], fill=c)
 
 
-def stat_box(x, y, w, h, label, value, vc):
-    fill(x, y, w, h, PANEL)
-    rect(x, y, w, h, GOLDDIM)
-    text_box(x + 1, y + 5, w - 2, 15, PANEL, LABEL, GREY, "ML", label, kStatInsetX - 1)
-    vf = LABEL if text_width(VALUE, value) > w - 2 * kStatInsetX else VALUE
-    text_box(x + 1, y + kStatValueDy, w - 2, kStatValueH, PANEL, vf, vc, "ML",
-             value, kStatInsetX - 1)
+def tile_x(i):
+    return padX + i * (kTileW + tileGap)
+
+
+def tile(i, icon, value, vc=GOLD):
+    """Mirrors HUDRenderer::drawTile() — icon where a label used to be."""
+    x = tile_x(i)
+    fill(x, tileY, kTileW, tileH, PANEL)
+    rect(x, tileY, kTileW, tileH, GOLDDIM)
+    draw_bitmap(x + tileInsetX, tileY + tileIconDy, ICONS[icon], GOLDDIM)
+    vf = LABEL if text_width(VALUE, value) > kTileW - 2 * tileInsetX else VALUE
+    text_box(x + 1, tileY + tileValueDy, kTileW - 2, tileValueH, PANEL, vf, vc, "ML",
+             value, tileInsetX - 1)
 
 
 def progress(pct):
@@ -212,10 +218,23 @@ def progress(pct):
         fill(padX + 1, barY + 1, fw, barH - 2, BLUE)
     rect(padX, barY, contentW, barH, GOLDDIM)
     s = f"{int(pct + 0.5)}% LIBERATED"
-    cw = text_width(VALUE, s)
-    asc, des = metrics(VALUE, s)
+    cw = text_width(DISPLAY, s)
+    asc, des = metrics(DISPLAY, s)
     draw_string(s, padX + contentW // 2 - cw // 2,
-                barY + barH // 2 - (asc + des) // 2 + asc, VALUE, TEXT)
+                barY + barH // 2 - (asc + des) // 2 + asc, DISPLAY, TEXT)
+
+
+def footer(left, left_color, reward=None):
+    """Mirrors HUDRenderer::drawFooter(): local sync time on the left, a medal
+    icon and the bare reward number on the right."""
+    text_box(padX, footerY, contentW // 2, footerH, BG, BODY, left_color, "ML", left)
+    if reward is None:
+        return
+    mw, mh, _ = ICONS["medal"]
+    text_box(contentR - contentW // 2, footerY, contentW // 2, footerH, BG, BODY,
+             GOLD, "MR", reward)
+    draw_bitmap(contentR - (mw + footerIconGap + text_width(BODY, reward)),
+                footerY + (footerH - mh) // 2, ICONS["medal"], GOLD)
 
 
 def badge_width(faction):
@@ -243,29 +262,18 @@ def badge(faction):
         text_box(x + 1, y + 1, w - 2, badgeH - 2, BG, LABEL, c, "MC", lab)
 
 
-def wrap(s, f, maxw, maxlines):
-    out, cur = [], ""
-    for word in s.split():
-        t = (cur + " " + word).strip()
-        if text_width(f, t) <= maxw:
-            cur = t
-        else:
-            if cur:
-                out.append(cur)
-            cur = word
-            if len(out) == maxlines:
-                break
-    if cur and len(out) < maxlines:
-        out.append(cur)
-    return out[:maxlines]
-
-
 # ---- live data captured from the API on 2026-07-26 ------------------------
 order_title = "MAJOR ORDER"
-briefing = "Liberate the designated planet and secure the superweapon intel."
-planet_name, sector, biome, owner = "X-45", "Ymir", "Basic Swamp", "Automaton"
-liberation, players, reward = 79.0, 33391, 40
-kills, success, online = "393.6B", 91, "51.0K"
+planet_name, sector, owner = "X-45", "Ymir", "Automaton"
+liberation, players, reward = 79.0, "33.4K", "40"
+time_left, kills, success, online = "18h 22m", "393.6B", 91, "51.0K"
+
+# The footer clock is UTC + the configured offset (see kUtcOffsetMinutesDefault
+# in src/config.h and the "UTC offset" field in the WiFi setup portal). The
+# sample here is a 14:32 UTC sync shown on a device set to UTC-6.
+sync_utc_hh, sync_utc_mm, sample_offset_min = 14, 32, -6 * 60
+_local = (sync_utc_hh * 60 + sync_utc_mm + sample_offset_min) % (24 * 60)
+sync_local = f"{_local // 60:02d}:{_local % 60:02d}"
 
 # Mode: "order" (default), "idle" (no active Major Order), "stale" (offline).
 mode = sys.argv[1] if len(sys.argv) > 1 else "order"
@@ -278,61 +286,44 @@ chrome()
 wifi(mode != "stale")
 
 if mode == "idle":
-    text_box(padX, 112, contentW, 32, BG, DISPLAY, GOLD, "MC", "NO ACTIVE")
-    text_box(padX, 146, contentW, 32, BG, DISPLAY, GOLD, "MC", "MAJOR ORDER")
-    text_box(padX, 188, contentW, 20, BG, BODY, TEXT, "MC",
-             "Stand by for orders from Super Earth High Command.")
-    text_box(padX, 212, contentW, 20, BG, BODY, GREY, "MC",
-             "Managed democracy does not sleep.")
+    em = ICONS["emblemLarge"]
+    draw_bitmap(padX + (contentW - em[0]) // 2, 92, em, GOLDDIM)
+    text_box(padX, 146, contentW, 28, BG, VALUE, GOLD, "MC", "NO ACTIVE MAJOR ORDER")
+    tile(0, "divers", online)
+    tile(1, "skull", kills)
+    tile(2, "check", f"{success}%")
     dr.line([padX, rule3Y, padX + contentW - 1, rule3Y], fill=GOLDDIM)
-    colW = contentW // 3
-    for i, (lb, vl) in enumerate([("KILLS", kills), ("SUCCESS", f"{success}%"),
-                                  ("ONLINE", online)]):
-        x = padX + i * colW
-        lw = text_width(LABEL, lb) + 8
-        text_box(x, warY, lw, warH, BG, LABEL, GREY, "ML", lb)
-        text_box(x + lw, warY, colW - lw - 6, warH, BG, LABEL, GOLD, "ML", vl)
-    text_box(padX, footerY, contentW // 2, footerH, BG, BODY, GREY, "ML",
-             "SYNCED 14:32 UTC")
+    footer(f"SYNCED {sync_local}", GREY)
     img.resize((960, 640), Image.NEAREST).save(f"preview_{mode}.png")
     print(f"wrote preview_{mode}.png")
     raise SystemExit
 
 text_box(padX, titleY, contentW, titleH, BG, DISPLAY, GOLD, "ML", order_title)
-for i, ln in enumerate(wrap(briefing, BODY, contentW, 2)):
-    text_box(padX, briefY + i * briefLineH, contentW, briefLineH, BG, BODY, TEXT, "ML", ln)
 dr.line([padX, rule2Y, padX + contentW - 1, rule2Y], fill=GOLDDIM)
 
-text_box(padX, targetY, 68, targetH, BG, LABEL, GREY, "ML", "TARGET")
+tg = ICONS["target"]
+draw_bitmap(padX, targetY + (targetH - tg[1]) // 2, tg, GOLD)
 badge(owner)
-bw = badge_width(owner)
-nameX = padX + 80
-nameW = (contentR - bw - 10) - nameX
-nf = VALUE if text_width(DISPLAY, planet_name) > nameW else DISPLAY
-text_box(nameX, targetY, nameW, targetH, BG, nf, TEXT, "ML", planet_name)
-text_box(padX, subY, contentW, subH, BG, BODY, GREY, "ML", f"{sector} SECTOR  -  {biome}")
+rowR = contentR - badge_width(owner) - badgeGap
+availW = rowR - kTargetNameX
+nf = DISPLAY if text_width(DISPLAY, planet_name) <= availW else VALUE
+nameW = text_width(nf, planet_name)
+text_box(kTargetNameX, targetY, availW, targetH, BG, nf, TEXT, "ML", planet_name)
+tag = sector.upper()
+tagW = text_width(BODY, tag)
+if nameW + tagGap + tagW <= availW:
+    text_box(rowR - tagW, targetY, tagW, targetH, BG, BODY, GREY, "MR", tag)
 progress(liberation)
 
-stat_box(padX, statY, kStatW, statH, "TIME LEFT", "18h 22m", GOLD)
-stat_box(padX + kStatW + statGap, statY, kStatW, statH, "PLAYERS", "33.4K", GOLD)
+tile(0, "clock", time_left)
+tile(1, "divers", players)
+tile(2, "skull", kills)
 
 dr.line([padX, rule3Y, padX + contentW - 1, rule3Y], fill=GOLDDIM)
-colW = contentW // 3
-for i, (lb, vl) in enumerate([("KILLS", kills), ("SUCCESS", f"{success}%"),
-                              ("ONLINE", online)]):
-    x = padX + i * colW
-    lw = text_width(LABEL, lb) + 8
-    text_box(x, warY, lw, warH, BG, LABEL, GREY, "ML", lb)
-    text_box(x + lw, warY, colW - lw - 6, warH, BG, LABEL, GOLD, "ML", vl)
-
 if mode == "stale":
-    text_box(padX, footerY, contentW // 2, footerH, BG, BODY, GOLDMUTE, "ML",
-             "STALE - LAST 14:32 UTC")
+    footer(f"STALE - LAST {sync_local}", GOLDMUTE, reward)
 else:
-    text_box(padX, footerY, contentW // 2, footerH, BG, BODY, GREY, "ML",
-             "SYNCED 14:32 UTC")
-text_box(padX + contentW // 2, footerY, contentW // 2, footerH, BG, BODY, GREY, "MR",
-         f"REWARD {reward} MEDALS")
+    footer(f"SYNCED {sync_local}", GREY, reward)
 
 if len(sys.argv) > 2:
     out = f"preview_{owner.lower()}.png"

@@ -38,7 +38,7 @@ class HUDRenderer {
   void drawChrome();
   void drawBody(const HudModel &m, time_t nowUtc);
   void drawOrderBody(const HudModel &m);
-  void drawIdleBody();
+  void drawIdleBody(const HudModel &m);
   void drawWifi(bool up);
   void drawCountdown(const HudModel &m, time_t nowUtc);
   void drawFooter(const HudModel &m, time_t nowUtc);
@@ -50,6 +50,14 @@ class HUDRenderer {
                const GFXfont *font, uint16_t fg, uint8_t datum, const String &s,
                int16_t inset = 0);
   void drawRule(int16_t y);
+  // One of the three stat tiles, by index 0..2: a bordered panel with an icon
+  // where a text label used to be, and a value beneath it.
+  void drawTile(int i, const uint8_t *icon, int16_t iw, int16_t ih,
+                const String &value, uint16_t valueColor);
+  // Repaints only a tile's value area — used by the ticking countdown.
+  void drawTileValue(int i, const String &value, uint16_t color);
+  static int16_t tileX(int i);
+  // Two-up label/value box; only the WiFi setup screen still uses it.
   void drawStatBox(int16_t x, int16_t y, int16_t w, int16_t h, const String &label,
                    const String &value, uint16_t valueColor);
   void drawProgressBar(float pct, bool known);
@@ -57,9 +65,6 @@ class HUDRenderer {
   // Width the faction badge will occupy, including its icon. drawBadge() and
   // the target-row layout both need it, so it lives in one place.
   int16_t badgeWidth(const String &faction);
-  // Greedy word wrap. Returns the number of lines written to `out`.
-  int wrapText(const String &in, const GFXfont *font, int16_t maxW, String *out,
-               int maxLines);
 
   TFT_eSPI _tft;
 
