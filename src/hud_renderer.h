@@ -35,7 +35,13 @@ class HUDRenderer {
 
  private:
   // --- composite sections ---
-  void drawChrome();
+  // Outer frame and corner brackets; on their own on every screen.
+  void drawFrame();
+  // The plain "SUPER EARTH" strip, used by every screen that is not showing a
+  // Major Order.
+  void drawStatusHeader();
+  // The Major Order header bar: background art, skull badge, Anton title.
+  void drawHeaderBar(const String &title);
   void drawBody(const HudModel &m, time_t nowUtc);
   void drawOrderBody(const HudModel &m);
   void drawIdleBody(const HudModel &m);
@@ -49,6 +55,10 @@ class HUDRenderer {
   void textBox(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t bg,
                const GFXfont *font, uint16_t fg, uint8_t datum, const String &s,
                int16_t inset = 0);
+  // Repaints a sub-rect of the header bar's background art, upscaling it from
+  // the half-size copy in hud_header_art.h. Coordinates are absolute; the rect
+  // must lie inside the bar.
+  void drawHeaderBg(int16_t x, int16_t y, int16_t w, int16_t h);
   void drawRule(int16_t y);
   // One of the three stat tiles, by index 0..2: a bordered panel with an icon
   // where a text label used to be, and a value beneath it.
@@ -69,6 +79,10 @@ class HUDRenderer {
   TFT_eSPI _tft;
 
   bool _chromeDrawn = false;
+  // Which header the last body paint left on screen. The WiFi indicator lives
+  // inside the header bar when there is one, and on the "SUPER EARTH" strip
+  // when there is not, so it has to know.
+  bool _headerBar = false;
   String _contentSig;    // last-painted body signature
   String _countdownSig;  // last-painted countdown string
   String _footerSig;
