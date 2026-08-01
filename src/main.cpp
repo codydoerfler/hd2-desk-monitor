@@ -122,6 +122,60 @@ static void onPollFailed(const char *what) {
   backoffS = min(backoffS * 2, kBackoffMaxS);
 }
 
+// The planet record the last good poll left for `index`, or nullptr. Used to
+// ride out a single flaky request without blanking a target card.
+static const PlanetInfo *cachedPlanet(int32_t index) {
+  for (int i = 0; i < model.order.taskCount; i++) {
+    const PlanetInfo &p = model.order.tasks[i].planet;
+    if (p.valid && p.index == index) return &p;
+  }
+  return nullptr;
+}
+
+// --- Rate history -----------------------------------------------------------
+//
+// The card quotes a %-per-hour figure that the API does not publish, so it is
+// measured here by keeping one earlier snapshot per target and letting the
+// renderer diff it against the live one. Called with `next` fully populated but
+// *before* it replaces model.order, which is what makes the old snapshots still
+// reachable.
+static void rollRateHistory(const MajorOrder &next) {
+  // A different order means different targets; anything held over would diff
+  // two unrelated planets and invent a swing that never happened.
+  if (next.id != model.historyOrderId) {
+    for (int i = 0; i < kMaxOrderTasks; i++) model.history[i] = RateSample();
+    model.historyOrderId = next.id;
+    return;
+  }
+
+  for (int i = 0; i < kMaxOrderTasks; i++) {
+    RateSample &h = model.history[i];
+    if (i >= next.taskCount || !next.tasks[i].planet.valid) {
+      h = RateSample();
+      continue;
+    }
+    const PlanetInfo &np = next.tasks[i].planet;
+    if (h.planetIndex != np.index) h = RateSample();
+
+    // Advance only when the incoming observation is genuinely newer than the
+    // one already on screen. A poll whose planet fetch failed carries the
+    // cached snapshot — and its original timestamp — forward unchanged; if that
+    // were allowed to shift the history the next good poll would diff a sample
+    // against itself and the readout would blink out for no reason.
+    const PlanetInfo *prev = cachedPlanet(np.index);
+    if (!prev || !prev->valid) continue;
+    if (prev->observedAt <= h.at || prev->observedAt >= np.observedAt) continue;
+
+    h.valid = true;
+    h.planetIndex = prev->index;
+    h.at = prev->observedAt;
+    h.libPct = prev->liberation;
+    h.haveEvent = prev->event.active;
+    h.eventPct = prev->event.defended();
+    h.eventEnd = prev->event.endTime;
+  }
+}
+
 static void poll() {
   if (WiFi.status() != WL_CONNECTED) {
     onPollFailed("wifi down");
@@ -138,16 +192,29 @@ static void poll() {
   // An empty assignments array is a valid state, not a failure: it just means
   // there is no Major Order right now. order.valid stays false and the HUD
   // shows the idle screen.
-  PlanetInfo planet;
-  if (order.valid && order.planetIndex >= 0) {
-    delay(kInterRequestDelayMs);
-    Serial.printf("[poll] fetching planet %d\n", (int)order.planetIndex);
-    if (!api.fetchPlanet(order.planetIndex, planet)) {
-      Serial.printf("[poll] planet lookup failed: %s\n", api.lastError().c_str());
-      // Reuse the previous planet record if it's for the same target, so a
-      // single flaky request doesn't blank the target card.
-      if (model.planet.valid && model.planet.index == order.planetIndex) {
-        planet = model.planet;
+  //
+  // One lookup per task: a "defend three planets" order names three different
+  // planets and dropping all but the first is exactly the bug this loop
+  // exists to avoid. kInterRequestDelayMs is sized for the resulting burst.
+  if (order.valid) {
+    for (int i = 0; i < order.taskCount; i++) {
+      OrderTask &t = order.tasks[i];
+      if (t.planetIndex < 0) continue;  // galaxy-wide objective, nothing to fetch
+
+      delay(kInterRequestDelayMs);
+      Serial.printf("[poll] fetching planet %d (task %d/%d, type %d)\n",
+                    (int)t.planetIndex, i + 1, order.taskCount, (int)t.taskType);
+      if (api.fetchPlanet(t.planetIndex, t.planet)) {
+        // Time-base for the %-per-hour readouts. Left at 0 until NTP has landed
+        // so a pre-sync boot cannot stamp a sample with a 1970 date.
+        const time_t now = time(nullptr);
+        if (now > 1600000000) t.planet.observedAt = now;
+      } else {
+        Serial.printf("[poll] planet lookup failed: %s\n", api.lastError().c_str());
+        // The cached record is copied whole, timestamp included, so it stays
+        // honestly dated as the older observation it is.
+        const PlanetInfo *prev = cachedPlanet(t.planetIndex);
+        if (prev) t.planet = *prev;
       }
     }
   }
@@ -161,8 +228,10 @@ static void poll() {
     war = model.war;
   }
 
+  // Reads the *outgoing* model.order, so it has to run before the assignment.
+  rollRateHistory(order);
+
   model.order = order;
-  model.planet = planet;
   model.war = war;
   model.haveData = true;
   model.stale = false;
@@ -173,10 +242,26 @@ static void poll() {
   pollDueMs = millis() + (uint32_t)HD2_POLL_INTERVAL_S * 1000UL;
 
   if (order.valid) {
-    Serial.printf("[poll] OK — \"%s\", target %s (%.1f%% liberated), heap %u\n",
-                  order.title.c_str(),
-                  planet.valid ? planet.name.c_str() : "n/a",
-                  planet.liberation, (unsigned)ESP.getFreeHeap());
+    Serial.printf("[poll] OK — \"%s\", %d target(s), heap %u\n", order.title.c_str(),
+                  order.taskCount, (unsigned)ESP.getFreeHeap());
+    for (int i = 0; i < order.taskCount; i++) {
+      const OrderTask &t = order.tasks[i];
+      // Liberation is only quoted for the task type it means something for.
+      if (t.planet.valid && t.planet.event.active) {
+        Serial.printf("  [%d] type %d  %s  %.4f%% defended vs %s (%u hazard(s))\n",
+                      i + 1, (int)t.taskType, t.planet.name.c_str(),
+                      t.planet.event.defended(), t.planet.event.faction.c_str(),
+                      (unsigned)t.planet.hazardCount);
+      } else if (taskIsLiberation(t.taskType) && t.planet.valid) {
+        Serial.printf("  [%d] type %d  %s  %.1f%% liberated\n", i + 1, (int)t.taskType,
+                      t.planet.name.c_str(), t.planet.liberation);
+      } else {
+        Serial.printf("  [%d] type %d  %s  %s (owner %s)\n", i + 1, (int)t.taskType,
+                      t.planet.valid ? t.planet.name.c_str() : "n/a",
+                      t.complete ? "complete" : "incomplete",
+                      t.planet.valid ? t.planet.owner.c_str() : "?");
+      }
+    }
   } else {
     Serial.printf("[poll] OK — no active Major Order, heap %u\n",
                   (unsigned)ESP.getFreeHeap());

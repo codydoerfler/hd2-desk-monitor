@@ -11,9 +11,12 @@ bits left transparent.
     python3 tools/gen_icons.py            # rewrite src/hud_icons.h
     python3 tools/gen_icons.py --preview  # also dump ASCII art to stdout
 
-All shapes are original simple geometry, not traced from any game asset.
+Most shapes are original simple geometry. The two exceptions are the device's
+own crest and the SEAF emblem, which are reduced from the source art in
+tools/assets/ by threshold-and-fit (see mask_fit) rather than redrawn.
 """
 import argparse
+import math
 import os
 
 from PIL import Image, ImageDraw
@@ -77,6 +80,12 @@ class Canvas:
         else:
             self.dr.rectangle(box, fill=v)
 
+    def arc(self, cx, cy, rx, ry, start, end, width=1.0, v=255):
+        """Stroked elliptical arc. Angles are PIL's: degrees clockwise from 3
+        o'clock, so 180->360 is the upper half."""
+        box = [(cx - rx) * S, (cy - ry) * S, (cx + rx) * S, (cy + ry) * S]
+        self.dr.arc(box, start, end, fill=v, width=max(1, round(width * S)))
+
     def bits(self):
         """Downsample + threshold to a list of rows of 0/1."""
         small = self.img.resize((self.w, self.h), Image.BOX)
@@ -86,56 +95,73 @@ class Canvas:
 
 
 # ---------------------------------------------------------------------------
+#  Source-art icons
+#
+#  Two marks are not drawn here: the device's crest and the SEAF emblem both
+#  come from artwork in tools/assets/, reduced to 1 bit by the same
+#  threshold-then-fit route so neither is redrawn as approximate vector
+#  geometry.
+# ---------------------------------------------------------------------------
+
+def mask_fit(c, mask):
+    """Scale a 1-bit mask to fit the canvas' supersampled slot and centre it.
+
+    The mask keeps its own aspect ratio — it is letterboxed inside the slot
+    rather than stretched to the slot's exact dimensions, since the icon's
+    declared w:h in ICONS is a layout box, not a statement about the art.
+    Canvas.bits() then box-filters and thresholds it like any drawn shape.
+    """
+    src_w, src_h = mask.size
+    slot_w, slot_h = c.w * S, c.h * S
+
+    scale = min(slot_w / src_w, slot_h / src_h)
+    new_w, new_h = max(1, round(src_w * scale)), max(1, round(src_h * scale))
+    resized = mask.resize((new_w, new_h), Image.LANCZOS)
+
+    c.img.paste(resized, ((slot_w - new_w) // 2, (slot_h - new_h) // 2))
+
+
+# The SEAF emblem source is a flag photo: a blue-grey field (luminance ~115)
+# behind a white device (~255) and a gold laurel (~195), letterboxed with black
+# bars (~0). One cut halfway between the field and the laurel therefore lifts
+# the whole emblem — laurel included — and drops both field and bars.
+SEAF_CUT = 155
+
+
+def seaf(c):
+    """Super Earth's SEAF emblem, from tools/assets/seaf_emblem_source.jpg.
+
+    The mark is all but square (647x620 of content), so in the wider
+    centrepiece slot it sits centred with the slack left either side. Its fine
+    detail — the globe's grid lines, the laurel, the stars — only survives the
+    1-bit reduction at the 72x39 centrepiece size, which is why that is the
+    only size cut from it.
+    """
+    src = Image.open(os.path.join(HERE, "assets", "seaf_emblem_source.jpg"))
+    m = src.convert("L").point(lambda p: 255 if p >= SEAF_CUT else 0)
+    # getbbox() drops the black bars and the field margin in one step, so the
+    # icon is cut from the emblem itself rather than from the photo's framing.
+    mask_fit(c, m.crop(m.getbbox()))
+
+
+def crest(c):
+    """The monitor's own mark: a winged skull, reduced from the reference art
+    the user supplied (tools/assets/crest_mask_v2.png — a plain black-on-white
+    silhouette), not redrawn as vector geometry.
+
+    The source is ~2.68:1 (560x209), which need not match this icon's own w:h
+    slot; mask_fit() letterboxes rather than stretches.
+    """
+    mask = Image.open(os.path.join(HERE, "assets", "crest_mask_v2.png")).convert("L")
+    mask_fit(c, mask.point(lambda p: 255 if p < 128 else 0))
+
+
+# ---------------------------------------------------------------------------
 #  Icon shapes
 #
 #  Each takes a Canvas sized to the icon. Shapes are written against the
-#  canvas' own width/height so the Super Earth emblem can be emitted at two
-#  sizes from one definition.
+#  canvas' own width/height so one definition can be emitted at several sizes.
 # ---------------------------------------------------------------------------
-
-def super_earth(c):
-    """Swept-wing emblem: a four-pointed star flanked by two raked wings.
-
-    Original geometry — a long-spiked star body with two wing sweeps. Written
-    against normalised coordinates so the same definition emits both the
-    header size and the small badge size.
-    """
-    W, H = c.w, c.h
-    cx = W / 2.0
-
-    def X(u):
-        return u * W
-
-    def Y(v):
-        return v * H
-
-    # --- central four-pointed star ----------------------------------------
-    # Compact concave star: the body has to stay small or it swamps the wings
-    # at 13px tall.
-    c.poly([
-        (cx, Y(0.02)),
-        (cx + X(0.040), Y(0.36)),
-        (cx + X(0.160), Y(0.52)),   # east point
-        (cx + X(0.085), Y(0.70)),
-        (cx, Y(1.00)),
-        (cx - X(0.085), Y(0.70)),
-        (cx - X(0.160), Y(0.52)),   # west point
-        (cx - X(0.040), Y(0.36)),
-    ])
-    # The spike tips taper below one pixel, so lay a 2px bar down the axis to
-    # keep them solid at both sizes.
-    c.rect(cx - 1, 0, cx + 1, H)
-
-    # --- wings: shallow crescents, tips flicked up and outboard ------------
-    # Two offset beziers meeting at the tip. The pair stays a band ~3px thick
-    # where it meets the star and runs near-horizontally out to the tip,
-    # rather than diving in as a triangle.
-    for s in (1, -1):
-        tip = (cx + s * X(0.480), Y(0.24))
-        pts = quad((cx + s * X(0.10), Y(0.34)), (cx + s * X(0.30), Y(0.23)), tip)
-        pts += quad(tip, (cx + s * X(0.32), Y(0.50)), (cx + s * X(0.10), Y(0.62)))
-        c.poly(pts)
-
 
 def automaton(c):
     """Angular head: boxy shell, two-slot visor, stalk antenna with a nub."""
@@ -258,11 +284,153 @@ def check(c):
            width=max(1.0, W * 0.155))
 
 
+# ---------------------------------------------------------------------------
+#  Major Order card
+#
+#  The card's header names the kind of objective, its identity row carries a
+#  planet disc, and its scene band shows one chip per hazard the API actually
+#  reports for that planet. Everything below is drawn from the same primitives
+#  as the set above.
+# ---------------------------------------------------------------------------
+
+def shield(c):
+    """Defend objective: a plain shield outline."""
+    W, H = c.w, c.h
+    pts = [(W * 0.50, H * 0.06), (W * 0.93, H * 0.22), (W * 0.93, H * 0.50),
+           (W * 0.50, H * 0.94), (W * 0.07, H * 0.50), (W * 0.07, H * 0.22)]
+    c.line(pts + [pts[0]], width=max(1.0, W * 0.115))
+
+
+def liberate(c):
+    """Liberate objective: a pennant planted on a staff."""
+    W, H = c.w, c.h
+    t = max(1.0, W * 0.10)
+    c.rect(W * 0.17, H * 0.04, W * 0.17 + t, H * 0.92)              # staff
+    c.poly([(W * 0.27, H * 0.08), (W * 0.94, H * 0.29),
+            (W * 0.27, H * 0.50)])                                  # pennant
+    c.rect(W * 0.02, H * 0.86, W * 0.60, H * 0.97)                  # ground
+
+
+def globe(c):
+    """Planet disc for the identity row: a ring with an equator and one
+    meridian, which is enough to read as a body rather than a target ring."""
+    W, H = c.w, c.h
+    cx, cy = W / 2.0, H / 2.0
+    t = max(1.0, W * 0.075)
+    c.ellipse(cx, cy, W * 0.46, H * 0.46, width=t)
+    c.line([(cx - W * 0.45, cy), (cx + W * 0.45, cy)], width=t * 0.75)
+    c.ellipse(cx, cy, W * 0.18, H * 0.46, width=t * 0.75)
+
+
+def haz_fire(c):
+    """Fire tornadoes / volcanic activity / intense heat: a flame."""
+    W, H = c.w, c.h
+    cx = W / 2.0
+    pts = quad((cx, 0), (cx + W * 0.48, H * 0.40), (cx + W * 0.31, H * 0.76))
+    pts += quad((cx + W * 0.31, H * 0.76), (cx + W * 0.31, H * 0.99), (cx, H * 0.99))
+    pts += quad((cx, H * 0.99), (cx - W * 0.31, H * 0.99), (cx - W * 0.31, H * 0.76))
+    pts += quad((cx - W * 0.31, H * 0.76), (cx - W * 0.36, H * 0.38), (cx, 0))
+    c.poly(pts)
+    c.poly([(cx, H * 0.44), (cx + W * 0.16, H * 0.72), (cx, H * 0.93),
+            (cx - W * 0.16, H * 0.72)], v=0)                        # cooler core
+
+
+def haz_ion(c):
+    """Ion storms: a lightning bolt."""
+    W, H = c.w, c.h
+    c.poly([(W * 0.66, 0), (W * 0.16, H * 0.56), (W * 0.44, H * 0.56),
+            (W * 0.32, H * 1.00), (W * 0.86, H * 0.40), (W * 0.54, H * 0.40)])
+
+
+def haz_cold(c):
+    """Blizzards / extreme cold: a six-spoke snowflake."""
+    W, H = c.w, c.h
+    cx, cy = W / 2.0, H / 2.0
+    t = max(1.0, W * 0.10)
+    for k in range(3):
+        a = math.radians(60 * k)
+        dx, dy = math.cos(a) * W * 0.48, math.sin(a) * H * 0.48
+        c.line([(cx - dx, cy - dy), (cx + dx, cy + dy)], width=t)
+
+
+def haz_meteor(c):
+    """Meteor storms: a rock with two trailing streaks."""
+    W, H = c.w, c.h
+    t = max(1.0, W * 0.11)
+    c.ellipse(W * 0.63, H * 0.67, W * 0.30, H * 0.30, fill_only=True)
+    c.line([(W * 0.03, H * 0.02), (W * 0.40, H * 0.39)], width=t)
+    c.line([(W * 0.38, H * 0.02), (W * 0.62, H * 0.26)], width=t)
+
+
+def haz_storm(c):
+    """Sandstorms / fog / rainstorms: three drifting bands."""
+    W, H = c.w, c.h
+    t = max(1.0, W * 0.115)
+    for i, (x0, x1) in enumerate(((0.04, 0.84), (0.18, 0.98), (0.04, 0.68))):
+        y = H * (0.22 + 0.28 * i)
+        c.line([(W * x0, y), (W * x1, y)], width=t)
+
+
+def haz_tremor(c):
+    """Tremors: a seismic trace over a ground line."""
+    W, H = c.w, c.h
+    t = max(1.0, W * 0.10)
+    c.line([(W * 0.02, H * 0.40), (W * 0.22, H * 0.40), (W * 0.35, H * 0.04),
+            (W * 0.52, H * 0.76), (W * 0.66, H * 0.24), (W * 0.77, H * 0.40),
+            (W * 0.98, H * 0.40)], width=t)
+    c.rect(W * 0.02, H * 0.84, W * 0.98, H * 0.95)
+
+
+def haz_other(c):
+    """Any hazard the set has no glyph for. The API's hazard names are free
+    text, so this is what keeps an unrecognised one visible instead of
+    silently dropped."""
+    # Solid triangle with the bang knocked out of it. An outlined triangle
+    # leaves so little black at 14px that the bang's stem fuses with the apex
+    # and the whole chip reads as a capital A.
+    W, H = c.w, c.h
+    c.poly([(W * 0.50, H * 0.02), (W * 1.00, H * 0.95), (W * 0.00, H * 0.95)])
+    c.rect(W * 0.42, H * 0.38, W * 0.58, H * 0.66, v=0)
+    c.rect(W * 0.42, H * 0.74, W * 0.58, H * 0.88, v=0)
+
+
+def trend(c):
+    """Marker for a %-per-hour readout: the same double chevron the progress
+    bars cap their fill with, so the two read as one idea."""
+    W, H = c.w, c.h
+    c.poly([(0, 0), (W * 0.50, H * 0.5), (0, H)])
+    c.poly([(W * 0.48, 0), (W * 0.98, H * 0.5), (W * 0.48, H)])
+
+
+def gauge(c):
+    """Verdict marker for WINNING / LOSING: a half dial with a needle.
+
+    Kept sparse — at 16px a thicker arc, a hub and a baseplate all crowd the
+    needle until the whole thing silts up into a blob.
+    """
+    W, H = c.w, c.h
+    cx, cy = W / 2.0, H * 0.80
+    t = max(1.0, W * 0.085)
+    c.arc(cx, cy, W * 0.46, H * 0.60, 180, 360, width=t)
+    c.line([(cx, cy), (cx + W * 0.24, cy - H * 0.34)], width=t * 1.3)
+    c.rect(W * 0.16, cy + t, W * 0.84, cy + t * 2.2)
+
+
+def diver(c):
+    """One helldiver, head and shoulders — the card footer's player-count
+    marker. The three-quarter pair in `divers` is too tall for that row."""
+    W, H = c.w, c.h
+    c.ellipse(W * 0.50, H * 0.22, W * 0.30, H * 0.24, fill_only=True)
+    c.poly([(W * 0.02, H * 1.00), (W * 0.19, H * 0.52),
+            (W * 0.81, H * 0.52), (W * 0.98, H * 1.00)])
+
+
 # name, width, height, draw fn
 ICONS = [
-    ("emblem",      24, 13, super_earth),   # header row
-    ("emblemBadge", 26, 14, super_earth),   # faction badge, "HUMANS"
-    ("emblemLarge", 72, 39, super_earth),   # idle-screen centrepiece
+    # The only size the emblem is cut at: below ~40px its globe grid, laurel
+    # and stars all silt up into a blob, so the header row and the SEAF faction
+    # badge are text-only rather than carrying an illegible icon.
+    ("emblemLarge", 72, 39, seaf),          # idle- and boot-screen centrepiece
     ("automaton",   20, 20, automaton),
     ("terminid",    20, 20, terminid),
     ("illuminate",  20, 20, illuminate),
@@ -272,6 +440,24 @@ ICONS = [
     ("skull",       24, 24, skull),
     ("check",       24, 24, check),
     ("medal",       14, 14, medal),         # footer reward
+
+    # --- Major Order card -------------------------------------------------
+    ("crest",      132, 55, crest),         # the device's own mark, 2.68:1 source
+    ("shield",      18, 18, shield),        # card header, defend objective
+    ("liberate",    18, 18, liberate),      # card header, liberate objective
+    ("globe",       28, 28, globe),         # card identity row
+    ("gauge",       16, 16, gauge),         # card verdict, WINNING / LOSING
+    ("trend",       12, 10, trend),         # card %/h readouts
+    ("diver",       13, 15, diver),         # card footer, player count
+    # One chip per hazard the API reports for the planet, matched on the
+    # hazard's own name in hd2_model.h. hazOther catches the rest.
+    ("hazFire",     14, 14, haz_fire),
+    ("hazIon",      14, 14, haz_ion),
+    ("hazCold",     14, 14, haz_cold),
+    ("hazMeteor",   14, 14, haz_meteor),
+    ("hazStorm",    14, 14, haz_storm),
+    ("hazTremor",   14, 14, haz_tremor),
+    ("hazOther",    14, 14, haz_other),
 ]
 
 

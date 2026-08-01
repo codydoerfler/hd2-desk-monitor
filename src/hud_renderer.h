@@ -8,10 +8,14 @@
 //    * The frame + static chrome are painted once.
 //    * A content signature is derived from the model; when it changes, the
 //      body is fully repainted. Real data only moves every 5 minutes.
-//    * Everything that ticks on its own — the countdown, the WiFi dot, the
-//      "last updated" line — is repainted through small off-screen sprites,
-//      which keeps it flicker-free without needing a full framebuffer
-//      (480*320*2 = 300KB would not fit in this ESP32's SRAM).
+//    * The Major Order card carries a second signature, because an order with
+//      several targets cycles through them every few seconds and that must not
+//      drag the whole screen through a repaint each time.
+//    * Everything that ticks on its own — the two clocks in the card's
+//      objective bar, the WiFi dot, the "last synced" line — is repainted
+//      through small off-screen sprites, which keeps it flicker-free without
+//      needing a full framebuffer (480*320*2 = 300KB would not fit in this
+//      ESP32's SRAM).
 // ---------------------------------------------------------------------------
 #pragma once
 
@@ -27,7 +31,7 @@ class HUDRenderer {
   void showBoot(const char *status);
   void showPortal(const char *ssid, const char *pass);
 
-  // Paints `m`, repainting only what changed. `nowUtc` drives the countdown.
+  // Paints `m`, repainting only what changed. `nowUtc` drives the clocks.
   void update(const HudModel &m, time_t nowUtc);
 
   // Forces the next update() to repaint everything (e.g. after a status page).
@@ -40,14 +44,31 @@ class HUDRenderer {
   // The plain "SUPER EARTH" strip, used by every screen that is not showing a
   // Major Order.
   void drawStatusHeader();
-  // The Major Order header bar: background art, skull badge, Anton title.
-  void drawHeaderBar(const String &title);
   void drawBody(const HudModel &m, time_t nowUtc);
-  void drawOrderBody(const HudModel &m);
   void drawIdleBody(const HudModel &m);
   void drawWifi(bool up);
-  void drawCountdown(const HudModel &m, time_t nowUtc);
   void drawFooter(const HudModel &m, time_t nowUtc);
+
+  // --- the Major Order card ---
+  // One target's card, top to bottom. Repainted as a unit — both when the data
+  // moves and when the carousel advances — because almost every row of it is
+  // target-specific.
+  void drawCard(const HudModel &m);
+  void drawObjectiveBar(const HudModel &m, const OrderTask &t, uint16_t accent);
+  void drawIdentity(const OrderTask &t, uint16_t accent);
+  void drawAlertRibbon(const OrderTask &t, uint16_t accent);
+  // The biome band. Also carries the order's own title, which the objective bar
+  // above it no longer has room for.
+  void drawScene(const HudModel &m, const OrderTask &t, uint16_t accent);
+  void drawProgress(const HudModel &m, const OrderTask &t, uint16_t accent);
+  void drawVerdict(const HudModel &m, const OrderTask &t);
+  // The two clocks set into the objective bar: the defence's own deadline and
+  // the order's expiry, on the gold flag. Both tick every second, so they own
+  // their slots and repaint independently of the rest of the card.
+  void drawCardClocks(const HudModel &m, time_t nowUtc);
+  // Advances the carousel index when its dwell time is up. Cheap; called every
+  // update().
+  void updateTargetCycle(const HudModel &m);
 
   // --- primitives ---
   // Paints `s` into an off-screen sprite covering the box, then blits it.
@@ -55,36 +76,55 @@ class HUDRenderer {
   void textBox(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t bg,
                const GFXfont *font, uint16_t fg, uint8_t datum, const String &s,
                int16_t inset = 0);
-  // Repaints a sub-rect of the header bar's background art, upscaling it from
-  // the half-size copy in hud_header_art.h. Coordinates are absolute; the rect
-  // must lie inside the bar.
-  void drawHeaderBg(int16_t x, int16_t y, int16_t w, int16_t h);
   void drawRule(int16_t y);
   // One of the three stat tiles, by index 0..2: a bordered panel with an icon
-  // where a text label used to be, and a value beneath it.
+  // where a text label used to be, and a value beneath it. Only the no-order
+  // screen still uses these.
   void drawTile(int i, const uint8_t *icon, int16_t iw, int16_t ih,
                 const String &value, uint16_t valueColor);
-  // Repaints only a tile's value area — used by the ticking countdown.
-  void drawTileValue(int i, const String &value, uint16_t color);
   static int16_t tileX(int i);
   // Two-up label/value box; only the WiFi setup screen still uses it.
   void drawStatBox(int16_t x, int16_t y, int16_t w, int16_t h, const String &label,
                    const String &value, uint16_t valueColor);
-  void drawProgressBar(float pct, bool known);
-  void drawBadge(const String &faction);
+  // A progress track with a chevron cap at the leading edge of its fill, and
+  // the measured %-per-hour beside it. `rate` is only drawn when `haveRate`;
+  // without it the column reads "--", because the API publishes no rate and a
+  // single poll cannot produce one.
+  void drawRateBar(int16_t y, float pct, uint16_t fill, bool haveRate, float rate);
+  // An empty track carrying a centred caption, for an objective that has no
+  // percentage to show at all.
+  void drawIdleBar(int16_t y, const String &label, uint16_t color);
+  void drawBadge(const String &faction, int16_t x, int16_t y, int16_t h);
   // Width the faction badge will occupy, including its icon. drawBadge() and
-  // the target-row layout both need it, so it lives in one place.
+  // the identity row's layout both need it, so it lives in one place.
   int16_t badgeWidth(const String &faction);
+  // Diagonal hazard hatching, clipped to the given box. Used by the alert
+  // ribbon's end blocks and, at a coarser pitch, by the scene panel.
+  void drawHatch(int16_t x, int16_t y, int16_t w, int16_t h, int16_t pitch,
+                 uint16_t c);
 
   TFT_eSPI _tft;
 
   bool _chromeDrawn = false;
-  // Which header the last body paint left on screen. The WiFi indicator lives
-  // inside the header bar when there is one, and on the "SUPER EARTH" strip
-  // when there is not, so it has to know.
-  bool _headerBar = false;
-  String _contentSig;    // last-painted body signature
-  String _countdownSig;  // last-painted countdown string
+  // Whether the last body paint left the Major Order card on screen. The WiFi
+  // indicator lives in the card's footer when it did, and on the "SUPER EARTH"
+  // strip when it did not, so it has to know.
+  bool _cardMode = false;
+  String _contentSig;  // last-painted body signature
+  String _targetSig;   // last-painted card signature
+  String _clockSig;    // last-painted pair of card clocks
   String _footerSig;
   int8_t _wifiSig = -1;  // -1 = never drawn, 0 = down, 1 = up
+
+  // Where drawCardClocks() has to paint. Set by drawObjectiveBar(), which is
+  // what measures the gold flag against its own text.
+  int16_t _flagX = 0, _flagW = 0;
+  int16_t _victoryX = 0, _victoryW = 0;
+
+  // Carousel over the order's targets. An order can name three planets and
+  // there is no room to show three of these cards at a legible size, so they
+  // take turns. Index into MajorOrder::tasks, plus the millis() stamp of the
+  // last switch.
+  uint8_t _targetIdx = 0;
+  uint32_t _targetSwitchMs = 0;
 };

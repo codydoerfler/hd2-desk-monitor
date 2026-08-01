@@ -31,8 +31,11 @@ approved visual spec. Two deliberate departures, both forced by resolution:
     them.
 
 Asset provenance: tools/assets/earth_nasa.jpg is NASA's Blue Marble, public
-domain. The skull is traced from a Helldivers 2 screenshot and is used here the
-same way the mockup used it.
+domain. The skull inside the disc is the winged skull in
+tools/assets/crest_mask_v2.png — the same art gen_icons.py cuts the `crest`
+icon from, so the badge and the crest are one mark. It supersedes the plain
+traced skull the mockup used (skull_traced_mask.png, kept in assets/ but no
+longer read).
 """
 import argparse
 import os
@@ -67,15 +70,28 @@ kArcRadii = (1.18, 1.38, 1.58)     # arc radii, as multiples of the disc's
 #  Skull badge — mockup draw_skull_badge()
 # ---------------------------------------------------------------------------
 
-def traced_skull(target_h):
-    """The pixel-traced skull mask, smoothed to the mockup's recipe.
+def traced_skull(target_h, max_w=None):
+    """The winged-skull mask, smoothed to the mockup's recipe.
 
-    Upscale hard, blur, re-threshold, blur again: that rounds off the JPEG
-    jaggies in the trace without moving the silhouette.
+    Source is tools/assets/crest_mask_v2.png — the same black-on-white winged
+    skull gen_icons.py cuts the `crest` icon from, so the header badge and the
+    crest are the one mark rather than two different skulls. It replaces the
+    older plain-skull trace (skull_traced_mask.png, still in assets/ but no
+    longer read from here).
+
+    Upscale, blur, re-threshold, blur again: that rounds off the edges without
+    moving the silhouette. The old trace was 68x72 and got a fixed 12x blow-up;
+    this source is already 560x209, so the factor is derived instead, landing
+    the working image at ~860px tall like the old one did. That keeps the blur
+    radii meaning the same thing relative to the art they are smoothing.
+
+    max_w clamps the result's width, scaling height to match — the winged skull
+    is 2.68:1, so inside the badge's disc it is width-bound, not height-bound.
     """
-    mask = Image.open(os.path.join(ASSETS, "skull_traced_mask.png")).convert("RGBA")
-    mask = mask.split()[3]
-    big = mask.resize((mask.width * 12, mask.height * 12), Image.LANCZOS)
+    mask = Image.open(os.path.join(ASSETS, "crest_mask_v2.png")).convert("L")
+    mask = mask.point(lambda p: 255 if p < 128 else 0)
+    up = max(1, round(860 / mask.height))
+    big = mask.resize((mask.width * up, mask.height * up), Image.LANCZOS)
     big = big.filter(ImageFilter.GaussianBlur(9))
     big = big.point(lambda v: 255 if v > 110 else 0)
     big = big.filter(ImageFilter.GaussianBlur(4))
@@ -83,6 +99,9 @@ def traced_skull(target_h):
     if box:
         big = big.crop(box)
     new_w = max(1, int(big.width * target_h / big.height))
+    if max_w is not None and new_w > max_w:
+        target_h = max(1, round(target_h * max_w / new_w))
+        new_w = max_w
     return big.resize((new_w, target_h), Image.LANCZOS)
 
 
@@ -103,8 +122,11 @@ def badge_masks(size):
               width=aw)
     d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=255)
 
+    # The winged skull spans 1.80r — wing tip to wing tip across the disc's
+    # widest line, leaving a 10% margin inside the 2r diameter. Its height then
+    # follows from the art's own 2.68:1, so it is letterboxed, never stretched.
     skull_h = int(r * 1.55)
-    sk = traced_skull(skull_h)
+    sk = traced_skull(skull_h, max_w=int(r * 1.80))
     skull = Image.new("L", (S, S), 0)
     skull.paste(sk, (cx - sk.width // 2, cy - sk.height // 2 - int(r * 0.04)))
     return disc, skull
@@ -226,8 +248,23 @@ def main():
 
     if args.preview:
         bg.resize((HDR_W, HDR_H), Image.BILINEAR).save("/tmp/header_bg.png")
-        disc.resize((BADGE, BADGE), Image.BOX).save("/tmp/header_badge.png")
-        print("wrote /tmp/header_bg.png, /tmp/header_badge.png")
+        # The badge as the device draws it: the disc mask in white, then the
+        # skull mask over it in the near-black, on the header's navy. Emitted
+        # from the packed rows, so this is the artwork that ships, not a
+        # prettier intermediate. Also dumped at 8x for eyeballing 1-bit detail.
+        badge = Image.new("RGB", (BADGE, BADGE), NAVY_DARK)
+        bpx = badge.load()
+        for y in range(BADGE):
+            for x in range(BADGE):
+                if disc_rows[y][x]:
+                    bpx[x, y] = WHITE
+                if skull_rows[y][x]:
+                    bpx[x, y] = SKULL
+        badge.save("/tmp/header_badge.png")
+        badge.resize((BADGE * 8, BADGE * 8), Image.NEAREST).save(
+            "/tmp/header_badge_8x.png")
+        print("wrote /tmp/header_bg.png, /tmp/header_badge.png, "
+              "/tmp/header_badge_8x.png")
 
     total = badge_bytes + skull_bytes + bg_bytes
     header = f"""// ---------------------------------------------------------------------------

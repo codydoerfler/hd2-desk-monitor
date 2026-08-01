@@ -75,7 +75,7 @@ footerY, footerH = 285, 15
 tileInsetX, tileIconDy = 12, 9
 tileValueDy, tileValueH = 38, 24
 badgeH, badgePadX = 30, 9
-headerIconGap, badgeIconGap, targetIconGap = 6, 6, 8
+badgeIconGap, targetIconGap = 6, 8
 tagGap, badgeGap, footerIconGap = 16, 12, 6
 badgeMaxW = 175
 statY, statH, statGap = 160, 46, 8
@@ -84,16 +84,22 @@ statY, statH, statGap = 160, 46, 8
 kTileW = (contentW - 2 * tileGap) // 3   # 142
 kStatW = (contentW - statGap) // 2       # 216
 kStatInsetX = 12
-kHeaderTextInset = ICONS["emblem"][0] + headerIconGap
 kTargetNameX = padX + ICONS["target"][0] + targetIconGap
 
-# Mirrors factionIcon() in hud_renderer.cpp.
+# Mirrors factionIcon() in hud_renderer.cpp. "Humans" is absent there too: the
+# SEAF badge is text-only, like an owner with no icon.
 FACTION_ICON = {"automaton": "automaton", "terminid": "terminid",
-                "illuminate": "illuminate", "human": "emblemBadge"}
+                "illuminate": "illuminate"}
+
+
+def display_name(faction):
+    """Mirrors factionDisplayName() — the badge draws the API's "Humans" as
+    "SEAF", so that is the string whose width has to fit."""
+    return "SEAF" if faction.lower().startswith("human") else faction
 
 
 def badge_w(faction):
-    bw = w(LABEL, faction.upper()) + 2 * badgePadX
+    bw = w(LABEL, display_name(faction).upper()) + 2 * badgePadX
     for prefix, icon in FACTION_ICON.items():
         if faction.lower().startswith(prefix):
             bw += ICONS[icon][0] + badgeIconGap
@@ -143,7 +149,8 @@ for faction in ["Automaton", "Terminids", "Illuminate", "Humans", "Unknown"]:
     if bw >= badgeMaxW:
         fail.append(f"badge {faction} hits the {badgeMaxW}px cap")
     availW = (contentR - bw - badgeGap) - kTargetNameX
-    print(f"  badge {faction.upper():<11} {bw:>3}px -> {availW:>3}px for the name")
+    print(f"  badge {display_name(faction).upper():<11} {bw:>3}px "
+          f"-> {availW:>3}px for the name")
     for pn in NAMES:
         g18 = w(DISPLAY, pn)
         used, got = ("18pt", g18) if g18 <= availW else ("12pt", w(VALUE, pn))
@@ -219,14 +226,14 @@ print("\n=== centrepiece emblem ===")
 elw, elh = ICONS["emblemLarge"]
 check("emblemLarge width in the content column", elw, contentW)
 check("emblemLarge above the idle caption (y=92)", 92 + elh, 146)
-check("emblemLarge above the boot caption (y=96)", 96 + elh, 150)
+check("emblemLarge above the uplink caption (y=96)", 96 + elh, 150)
+check("emblemLarge above the boot caption (y=110)", 110 + elh, 164)
 
-print("\n=== header row (emblem + label + wifi block) ===")
+print("\n=== header row (label + wifi block) ===")
 se = w(LABEL, "SUPER EARTH")
-check('"SUPER EARTH" @9pt bold in its box', se, 200 - kHeaderTextInset)
-check("emblem + label vs the WiFi block", padX + kHeaderTextInset + se, contentR - 110)
+check('"SUPER EARTH" @9pt bold in its box', se, 200)
+check("label vs the WiFi block", padX + se, contentR - 110)
 check('"OFFLINE" @9pt bold in wifi box', w(LABEL, "OFFLINE"), 110 - (2 * 5 + 6))
-check("emblem height in the header row", ICONS["emblem"][1], headerH)
 
 print("\n=== faction badge ===")
 for n in sorted(set(FACTION_ICON.values())):

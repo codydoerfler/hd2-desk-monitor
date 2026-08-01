@@ -342,6 +342,7 @@ python3 tools/check_layout.py             # asserts every HUD string fits its bo
 python3 tools/preview_hud.py              # -> preview.png       (active order)
 python3 tools/preview_hud.py idle         # -> preview_idle.png  (no active MO)
 python3 tools/preview_hud.py stale        # -> preview_stale.png (offline + stale)
+python3 tools/preview_hud.py boot         # -> preview_boot.png  (startup screen)
 python3 tools/preview_hud.py order Humans # -> preview_humans.png (any faction badge)
 ```
 
@@ -368,8 +369,6 @@ python3 tools/gen_icons.py --preview  # ...and dump ASCII art of each icon
 
 | Icon | Size | Where |
 |---|---|---|
-| `emblem` | 24x13 | Header, beside "SUPER EARTH" |
-| `emblemBadge` | 26x14 | Faction badge, when Humans hold the planet |
 | `emblemLarge` | 72x39 | Centrepiece on the idle and boot screens |
 | `automaton` `terminid` `illuminate` | 20x20 | Faction badge |
 | `target` | 20x20 | Target row — replaces the old `TARGET` text label |
@@ -381,7 +380,16 @@ python3 tools/gen_icons.py --preview  # ...and dump ASCII art of each icon
 
 The shapes are drawn at an 8x supersample and thresholded down to the target
 size, so changing an icon's dimensions is a one-line edit in the `ICONS` table.
-All twelve together are 1,002 bytes of flash.
+The crest and the SEAF emblem are the exception: they are cut from the source
+art in `tools/assets/` by the same threshold-and-fit step (`mask_fit`) rather
+than redrawn, and are letterboxed inside their slot so the artwork keeps its
+own aspect ratio.
+
+The emblem is cut at one size only. Its globe grid, laurel wreath and stars do
+not survive the 1-bit reduction below roughly 40 px — the mark just reads as a
+blob — so the "SUPER EARTH" header strip and the SEAF faction badge are
+text-only, and the emblem appears only as the 72x39 centrepiece on the idle and
+boot screens.
 
 Between them the two tools caught six real layout bugs before any hardware
 existed, including a text label whose box was 2 px too narrow, so the planet

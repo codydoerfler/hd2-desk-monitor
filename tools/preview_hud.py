@@ -77,13 +77,19 @@ BG_W, BG_H, BG_PX = load_header_bg()
 
 
 def faction_icon(faction):
-    """Mirrors factionIcon() in hud_renderer.cpp."""
+    """Mirrors factionIcon() in hud_renderer.cpp — "Humans" is absent there
+    too, so the SEAF badge draws text-only like an owner with no icon."""
     f = faction.lower()
     for prefix, name in (("automaton", "automaton"), ("terminid", "terminid"),
-                         ("illuminate", "illuminate"), ("human", "emblemBadge")):
+                         ("illuminate", "illuminate")):
         if f.startswith(prefix):
             return ICONS[name]
     return None
+
+
+def faction_display_name(faction):
+    """Mirrors factionDisplayName() — the API's "Humans" is drawn as "SEAF"."""
+    return "SEAF" if faction.lower().startswith("human") else faction
 
 
 def gly(f, ch):
@@ -196,11 +202,10 @@ barY, barH = 132, 36
 tileY, tileH, tileGap = 180, 68, 7
 rule3Y, footerY, footerH = 260, 285, 15
 badgeH, badgePadX = 30, 9
-headerIconGap, badgeIconGap, badgeMaxW = 6, 6, 175
+badgeIconGap, badgeMaxW = 6, 175
 targetIconGap, tagGap, badgeGap, footerIconGap = 8, 16, 12, 6
 tileInsetX, tileIconDy, tileValueDy, tileValueH = 12, 9, 38, 24
 kTileW = (contentW - 2 * tileGap) // 3
-kHeaderTextInset = ICONS["emblem"][0] + headerIconGap
 kTargetNameX = padX + ICONS["target"][0] + targetIconGap
 
 
@@ -235,11 +240,10 @@ def frame():
 
 def status_header():
     """Mirrors HUDRenderer::drawStatusHeader() — the plain "SUPER EARTH" strip
-    every screen that is not showing a Major Order still uses."""
-    text_box(padX, headerY, 200, headerH, BG, LABEL, GOLD, "ML", "SUPER EARTH",
-             kHeaderTextInset)
-    em = ICONS["emblem"]
-    draw_bitmap(padX, headerY + (headerH - em[1]) // 2, em, GOLD)
+    every screen that is not showing a Major Order still uses. Text only: the
+    emblem is illegible at header height, so it appears only at centrepiece
+    size lower down."""
+    text_box(padX, headerY, 200, headerH, BG, LABEL, GOLD, "ML", "SUPER EARTH")
     dr.line([padX, rule1Y, padX + contentW - 1, rule1Y], fill=GOLDDIM)
 
 
@@ -361,7 +365,7 @@ def footer(left, left_color, reward=None):
 
 
 def badge_width(faction):
-    w = text_width(LABEL, faction.upper()) + 2 * badgePadX
+    w = text_width(LABEL, faction_display_name(faction).upper()) + 2 * badgePadX
     ic = faction_icon(faction)
     if ic:
         w += ic[0] + badgeIconGap
@@ -369,7 +373,7 @@ def badge_width(faction):
 
 
 def badge(faction):
-    lab = faction.upper()
+    lab = faction_display_name(faction).upper()
     c = GREEN if faction.lower() == "humans" else RED
     ic = faction_icon(faction)
     w = badge_width(faction)
@@ -398,7 +402,8 @@ sync_utc_hh, sync_utc_mm, sample_offset_min = 14, 32, -6 * 60
 _local = (sync_utc_hh * 60 + sync_utc_mm + sample_offset_min) % (24 * 60)
 sync_local = f"{_local // 60:02d}:{_local % 60:02d}"
 
-# Mode: "order" (default), "idle" (no active Major Order), "stale" (offline).
+# Mode: "order" (default), "idle" (no active Major Order), "stale" (offline),
+# "boot" (the startup screen, before there is any data to show).
 mode = sys.argv[1] if len(sys.argv) > 1 else "order"
 # Optional 2nd arg overrides the badge faction, to eyeball each faction icon:
 #   python3 tools/preview_hud.py order Terminids
@@ -406,6 +411,20 @@ if len(sys.argv) > 2:
     owner = sys.argv[2]
 
 frame()
+
+if mode == "boot":
+    # Mirrors HUDRenderer::showBoot(). No WiFi indicator: the boot screen is
+    # drawn before the link state means anything.
+    status_header()
+    em = ICONS["emblemLarge"]
+    draw_bitmap(padX + (contentW - em[0]) // 2, 110, em, GOLD)
+    text_box(padX, 164, contentW, 22, BG, VALUE, TEXT, "MC", "MAJOR ORDER MONITOR")
+    text_box(padX, 200, contentW, 20, BG, BODY, GREY, "MC",
+             "Contacting High Command...")
+    img.resize((960, 640), Image.NEAREST).save("preview_boot.png")
+    print("wrote preview_boot.png")
+    raise SystemExit
+
 # A live Major Order gets the full header bar; everything else keeps the strip.
 if mode == "idle":
     status_header()
