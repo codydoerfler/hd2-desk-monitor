@@ -417,9 +417,9 @@ if mode == "boot":
     # drawn before the link state means anything.
     status_header()
     em = ICONS["hd2LogoBoot"]
-    draw_bitmap(padX + (contentW - em[0]) // 2, 110, em, GOLD)
-    text_box(padX, 164, contentW, 22, BG, VALUE, TEXT, "MC", "MAJOR ORDER MONITOR")
-    text_box(padX, 200, contentW, 20, BG, BODY, GREY, "MC",
+    draw_bitmap(padX, 48, em, GOLD)
+    text_box(padX, 232, contentW, 22, BG, VALUE, TEXT, "MC", "MAJOR ORDER MONITOR")
+    text_box(padX, 264, contentW, 20, BG, BODY, GREY, "MC",
              "Contacting High Command...")
     img.resize((960, 640), Image.NEAREST).save("preview_boot.png")
     print("wrote preview_boot.png")

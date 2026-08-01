@@ -1104,14 +1104,13 @@ void HUDRenderer::showBoot(const char *status) {
   drawFrame();
   drawStatusHeader();
   // The Helldivers II title mark, boot screen only -- the idle screen keeps
-  // the SEAF emblem as its own centrepiece. Same gap above the caption the
-  // old emblem left; only scaled and recoloured, never redrawn.
-  _tft.drawBitmap(padX + (contentW - icons::hd2LogoBootW) / 2, 110,
-                  icons::hd2LogoBoot, icons::hd2LogoBootW, icons::hd2LogoBootH,
-                  theme::gold);
-  textBox(padX, 164, contentW, 22, theme::bg, FONT_VALUE, theme::text, MC_DATUM,
+  // the SEAF emblem as its own centrepiece. Cut at the full 440px content
+  // width so it carries the screen; only scaled and recoloured, never redrawn.
+  _tft.drawBitmap(padX, 48, icons::hd2LogoBoot, icons::hd2LogoBootW,
+                  icons::hd2LogoBootH, theme::gold);
+  textBox(padX, 232, contentW, 22, theme::bg, FONT_VALUE, theme::text, MC_DATUM,
           F("MAJOR ORDER MONITOR"));
-  textBox(padX, 200, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
+  textBox(padX, 264, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
           String(status));
   // Next update() must repaint from scratch.
   _chromeDrawn = false;

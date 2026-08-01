@@ -449,7 +449,7 @@ ICONS = [
     # and stars all silt up into a blob, so the header row and the SEAF faction
     # badge are text-only rather than carrying an illegible icon.
     ("emblemLarge", 72, 39, seaf),          # idle-screen centrepiece
-    ("hd2LogoBoot", 96, 38, hd2_logo),      # boot-screen centrepiece
+    ("hd2LogoBoot", 440, 172, hd2_logo),    # boot-screen centrepiece, full width
     ("automaton",   20, 20, automaton),
     ("terminid",    20, 20, terminid),
     ("illuminate",  20, 20, illuminate),
