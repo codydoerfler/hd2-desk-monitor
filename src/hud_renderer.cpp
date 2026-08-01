@@ -1103,10 +1103,11 @@ void HUDRenderer::showBoot(const char *status) {
   _tft.fillScreen(theme::bg);
   drawFrame();
   drawStatusHeader();
-  // Super Earth's own emblem, at the one size its detail survives. Same gap
-  // above the caption as the idle screen leaves.
-  _tft.drawBitmap(padX + (contentW - icons::emblemLargeW) / 2, 110,
-                  icons::emblemLarge, icons::emblemLargeW, icons::emblemLargeH,
+  // The Helldivers II title mark, boot screen only -- the idle screen keeps
+  // the SEAF emblem as its own centrepiece. Same gap above the caption the
+  // old emblem left; only scaled and recoloured, never redrawn.
+  _tft.drawBitmap(padX + (contentW - icons::hd2LogoBootW) / 2, 110,
+                  icons::hd2LogoBoot, icons::hd2LogoBootW, icons::hd2LogoBootH,
                   theme::gold);
   textBox(padX, 164, contentW, 22, theme::bg, FONT_VALUE, theme::text, MC_DATUM,
           F("MAJOR ORDER MONITOR"));

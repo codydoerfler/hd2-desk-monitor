@@ -227,7 +227,10 @@ elw, elh = ICONS["emblemLarge"]
 check("emblemLarge width in the content column", elw, contentW)
 check("emblemLarge above the idle caption (y=92)", 92 + elh, 146)
 check("emblemLarge above the uplink caption (y=96)", 96 + elh, 150)
-check("emblemLarge above the boot caption (y=110)", 110 + elh, 164)
+
+blw, blh = ICONS["hd2LogoBoot"]
+check("hd2LogoBoot width in the content column", blw, contentW)
+check("hd2LogoBoot above the boot caption (y=110)", 110 + blh, 164)
 
 print("\n=== header row (label + wifi block) ===")
 se = w(LABEL, "SUPER EARTH")

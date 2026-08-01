@@ -156,6 +156,24 @@ def crest(c):
     mask_fit(c, mask.point(lambda p: 255 if p < 128 else 0))
 
 
+# The Helldivers II wordmark the user supplied directly: black field, solid
+# yellow mark. A mid threshold on luminance alone separates them cleanly, no
+# colour masking needed. Boot screen only -- the idle screen keeps the SEAF
+# emblem, so this is a distinct icon rather than a swap of emblemLarge.
+HD2_LOGO_CUT = 128
+
+
+def hd2_logo(c):
+    """The Helldivers II title mark (II + wordmark + skull), reduced from the
+    user-supplied source art in tools/assets/hd2_logo_source.jpg, not redrawn.
+
+    Boot-screen centrepiece only.
+    """
+    src = Image.open(os.path.join(HERE, "assets", "hd2_logo_source.jpg")).convert("L")
+    m = src.point(lambda p: 255 if p >= HD2_LOGO_CUT else 0)
+    mask_fit(c, m.crop(m.getbbox()))
+
+
 # ---------------------------------------------------------------------------
 #  Icon shapes
 #
@@ -430,7 +448,8 @@ ICONS = [
     # The only size the emblem is cut at: below ~40px its globe grid, laurel
     # and stars all silt up into a blob, so the header row and the SEAF faction
     # badge are text-only rather than carrying an illegible icon.
-    ("emblemLarge", 72, 39, seaf),          # idle- and boot-screen centrepiece
+    ("emblemLarge", 72, 39, seaf),          # idle-screen centrepiece
+    ("hd2LogoBoot", 96, 38, hd2_logo),      # boot-screen centrepiece
     ("automaton",   20, 20, automaton),
     ("terminid",    20, 20, terminid),
     ("illuminate",  20, 20, illuminate),

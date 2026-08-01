@@ -416,7 +416,7 @@ if mode == "boot":
     # Mirrors HUDRenderer::showBoot(). No WiFi indicator: the boot screen is
     # drawn before the link state means anything.
     status_header()
-    em = ICONS["emblemLarge"]
+    em = ICONS["hd2LogoBoot"]
     draw_bitmap(padX + (contentW - em[0]) // 2, 110, em, GOLD)
     text_box(padX, 164, contentW, 22, BG, VALUE, TEXT, "MC", "MAJOR ORDER MONITOR")
     text_box(padX, 200, contentW, 20, BG, BODY, GREY, "MC",
