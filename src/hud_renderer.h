@@ -37,6 +37,12 @@ class HUDRenderer {
   // Forces the next update() to repaint everything (e.g. after a status page).
   void invalidate();
 
+#ifdef HUD_PREVIEW
+  // Preview builds (tools/preview.sh) rasterise the panel to a PNG, so they
+  // need at the pixels the renderer has drawn. Compiled out of the firmware.
+  TFT_eSPI &canvas() { return _tft; }
+#endif
+
  private:
   // --- composite sections ---
   // Outer frame and corner brackets; on their own on every screen.

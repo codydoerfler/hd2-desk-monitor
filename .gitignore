@@ -14,3 +14,6 @@
 
 # macOS
 .DS_Store
+
+# Generated HUD previews (tools/preview.sh). docs/preview.png is tracked.
+preview_*.png

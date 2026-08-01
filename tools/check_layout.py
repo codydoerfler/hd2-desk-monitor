@@ -11,6 +11,10 @@ FD = ".pio/libdeps/hosyond-esp32-32e/TFT_eSPI/Fonts/GFXFF/"
 ROW = re.compile(r"\s*\{\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,")
 
 
+BOX = re.compile(r"\s*\{\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,"
+                 r"\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)")
+
+
 def load(name):
     """Return {codepoint: xAdvance} for a TFT_eSPI GFXFF font."""
     adv, grabbing = [], False
@@ -28,8 +32,26 @@ def load(name):
     return {0x20 + i: a for i, a in enumerate(adv)}
 
 
+def load_boxes(name):
+    """Return {codepoint: (height, yOffset)} -- the glyph's vertical extent."""
+    out, grabbing, i = {}, False, 0
+    for ln in open(FD + name + ".h"):
+        if "Glyphs[]" in ln:
+            grabbing = True
+            continue
+        if grabbing:
+            if ln.strip().startswith("};"):
+                break
+            m = BOX.match(ln)
+            if m:
+                out[0x20 + i] = (int(m.group(3)), int(m.group(6)))
+                i += 1
+    return out
+
+
 FONTS = {n: load(n) for n in ["FreeSans9pt7b", "FreeSansBold9pt7b",
                               "FreeSansBold12pt7b", "FreeSansBold18pt7b"]}
+GLYPH_BOX = {n: load_boxes(n) for n in FONTS}
 # Mirrors src/hud_fonts.h.
 BODY, LABEL, VALUE, DISPLAY = ("FreeSans9pt7b", "FreeSansBold9pt7b",
                                "FreeSansBold12pt7b", "FreeSansBold18pt7b")
@@ -57,26 +79,38 @@ ICONS = icon_dims()
 print("icons: " + ", ".join(f"{n} {w}x{h}" for n, (w, h) in sorted(ICONS.items())))
 print()
 
-# --- constants mirrored from src/config.h ---
-padX, contentR = 20, 460
-contentW = contentR - padX            # 440
-frameY, frameH = 8, 304
+# --- constants, parsed straight out of src/config.h ---
+#
+# These used to be re-typed here by hand, "mirrored from src/config.h". They
+# drifted: the checker was still validating titleY/targetY/barY/tileY long
+# after the card was rebuilt around objY/idyY/ribY/sceneY, so it passed
+# against a layout the firmware no longer had. Parsing the header means the
+# constants cannot go stale.
+def load_config(path="src/config.h"):
+    txt = open(path).read()
+    out = {}
+    for m in re.finditer(r"constexpr int16_t\s+([^;]+);", txt):
+        for decl in m.group(1).split(","):
+            if "=" not in decl:
+                continue
+            name, _, val = decl.partition("=")
+            name, val = name.strip(), val.strip()
+            try:
+                out[name] = int(val, 0)
+            except ValueError:
+                # An expression in terms of names already parsed.
+                try:
+                    out[name] = int(eval(val, {"__builtins__": {}}, out))
+                except Exception:
+                    pass
+    return out
 
-headerY, headerH = 18, 15
-rule1Y = 39
-titleY, titleH = 45, 32
-rule2Y = 84
-targetY, targetH = 90, 34
-barY, barH = 132, 36
-tileY, tileH, tileGap = 180, 68, 7
-rule3Y = 260
-footerY, footerH = 285, 15
 
-tileInsetX, tileIconDy = 12, 9
-tileValueDy, tileValueH = 38, 24
-badgeH, badgePadX = 30, 9
-badgeIconGap, targetIconGap = 6, 8
-tagGap, badgeGap, footerIconGap = 16, 12, 6
+CFG = load_config()
+globals().update(CFG)
+print(f"parsed {len(CFG)} layout constants from src/config.h")
+print()
+
 badgeMaxW = 175
 statY, statH, statGap = 160, 46, 8
 
@@ -117,25 +151,81 @@ def check(label, got, limit):
         fail.append(label)
 
 
-print("=== vertical grid (rows must not collide) ===")
-BANDS = [("header", headerY, headerH), ("rule1", rule1Y, 1),
-         ("title", titleY, titleH), ("rule2", rule2Y, 1),
-         ("target", targetY, targetH), ("bar", barY, barH),
-         ("tiles", tileY, tileH), ("rule3", rule3Y, 1),
-         ("footer", footerY, footerH)]
-prev_name, prev_bottom = "frame top", frameY + 1
-for name, y, h in BANDS:
-    ok = y >= prev_bottom
-    print(f"{'ok ' if ok else 'BAD'} {name:<10} y {y:>3}..{y + h - 1:>3}   "
+def grid(title, bands, top, bottom):
+    print(f"=== {title} (rows must not collide) ===")
+    prev_name, prev_bottom = "frame top", top
+    for name, y, h in bands:
+        ok = y >= prev_bottom
+        print(f"{'ok ' if ok else 'BAD'} {name:<10} y {y:>3}..{y + h - 1:>3}   "
+              f"(after {prev_name} @{prev_bottom})")
+        if not ok:
+            fail.append(f"row {name} overlaps {prev_name}")
+        prev_name, prev_bottom = name, y + h
+    check(f"{prev_name} bottom inside the frame", prev_bottom, bottom)
+    print()
+
+
+# The Major Order card, which is what the display shows almost all the time.
+grid("card grid", [("objective", objY, objH), ("identity", idyY, idyH),
+                   ("ribbon", ribY, ribH), ("scene", sceneY, sceneH),
+                   ("bars", barsY, 2 * cardBarH + barsGap),
+                   ("verdict", verdictY, verdictH), ("cardRule", cardRuleY, 1),
+                   ("cardFoot", cardFootY, cardFootH)],
+     frameY + 1, frameY + frameH - 1)
+
+# Every other screen keeps the plain "SUPER EARTH" strip.
+grid("status-screen grid", [("header", headerY, headerH), ("rule1", rule1Y, 1)],
+     frameY + 1, frameY + frameH - 1)
+
+# The scene band stacks three rows inside itself, and they are positioned
+# row-relative, so a collision there does not show up in the card grid above.
+# This is what let the biome row (15px for a 22px font) clip "DESERT" and then,
+# once widened, overlap the hazard chips.
+print("=== scene band inner rows ===")
+SCENE_ROWS = [("title", sceneTitleDy, sceneTitleH),
+              ("biome", sceneBiomeDy, sceneBiomeH),
+              ("chips", sceneChipDy, ICONS["hazTremor"][1])]
+prev_name, prev_bottom = "band top", 0
+for name, dy, h in SCENE_ROWS:
+    ok = dy >= prev_bottom
+    print(f"{'ok ' if ok else 'BAD'} {name:<10} dy {dy:>3}..{dy + h - 1:>3}   "
           f"(after {prev_name} @{prev_bottom})")
     if not ok:
-        fail.append(f"row {name} overlaps {prev_name}")
-    prev_name, prev_bottom = name, y + h
-check("footer bottom inside the frame", prev_bottom, frameY + frameH - 1)
+        fail.append(f"scene row {name} overlaps {prev_name}")
+    prev_name, prev_bottom = name, dy + h
+check("scene rows inside the band", prev_bottom, sceneH)
 
-print("\n=== title row ===")
-for t in ["MAJOR ORDER", "LIBERATE MERIDIA", "DEFEND THE CREEK"]:
-    check(f'"{t}" @18pt', w(DISPLAY, t), contentW)
+# A text row shorter than the glyphs it actually draws clips them. The bound
+# is per-row rather than the font's full line height, because a row that only
+# ever sets capitals does not need to reserve descender space -- what matters
+# is the span of the characters that row can really contain.
+#
+# This is the check that would have caught the biome row: 15px for glyphs
+# spanning 17px, which cut the baseline row off "DESERT".
+print("\n=== text rows vs the glyphs they draw ===")
+
+
+def glyph_span(font, chars):
+    """Total vertical extent, in px, of the tallest/deepest of `chars`."""
+    rows = GLYPH_BOX[font]
+    top = min(rows[ord(c)][1] for c in chars if ord(c) in rows)
+    bot = max(rows[ord(c)][1] + rows[ord(c)][0] for c in chars if ord(c) in rows)
+    return bot - top
+
+
+CAPS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -,.'%/:"
+for label, font, h, chars in [
+        ("scene biome row", BODY, sceneBiomeH, CAPS),
+        ("scene title row", LABEL, sceneTitleH, CAPS),
+        ("identity sector row", BODY, idySectorH, CAPS),
+        ("objective bar text", LABEL, objH - 2, CAPS),
+        ("footer count row", BODY, cardFootH, "0123456789,")]:
+    need = glyph_span(font, chars)
+    ok = h >= need
+    print(f"{'ok ' if ok else 'BAD'} {label:<52} {h:>4}px (needs {need})")
+    if not ok:
+        fail.append(label)
+print()
 
 print("\n=== target row: crosshair + planet name + sector tag + badge ===")
 print(f"    crosshair {ICONS['target'][0]}x{ICONS['target'][1]} at x={padX}, "

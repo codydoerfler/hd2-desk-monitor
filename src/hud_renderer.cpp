@@ -156,7 +156,7 @@ static String formatRate(float pctPerHour) {
   float a = fabsf(pctPerHour);
   if (a > 99.999f) a = 99.999f;  // clamp rather than let the field jump width
   char buf[24];
-  snprintf(buf, sizeof(buf), "%c%06.3f%% / h", pctPerHour < 0.0f ? '-' : '+', a);
+  snprintf(buf, sizeof(buf), "%c%.1f%% / h", pctPerHour < 0.0f ? '-' : '+', a);
   return String(buf);
 }
 
@@ -673,23 +673,9 @@ void HUDRenderer::drawObjectiveBar(const HudModel &m, const OrderTask &t,
   _flagX = flagX + flagCut;
   _flagW = cardX + cardW - _flagX;
 
-  // --- "VICTORY IN:" — the defence's own deadline, not the order's ---------
-  _victoryX = 0;
-  _victoryW = 0;
-  if (t.planet.event.active) {
-    _tft.setFreeFont(FONT_LABEL);
-    const int16_t vW = max(_tft.textWidth("88d 88h"), _tft.textWidth("EXPIRED")) + 2;
-    _tft.setFreeFont(FONT_BODY);
-    const String label = F("VICTORY IN:");
-    const int16_t labelW = _tft.textWidth(label.c_str());
-
-    _victoryX = flagX - victoryGap - vW;
-    _victoryW = vW;
-    washText(_victoryX - 6 - labelW, objY + 1, labelW, objH - 2, FONT_BODY,
-             theme::grey, MR_DATUM, label);
-  }
-
   // --- status word, then the carousel pips ---------------------------------
+  // Drawn before the right-hand clock so its extent is known: the bar packs
+  // from both ends, and "VICTORY IN:" has to know where the left block stops.
   const int16_t iconX = cardX + objPad;
   const int16_t wordX = iconX + ic.w + objIconGap;
   _tft.setFreeFont(FONT_LABEL);
@@ -697,6 +683,8 @@ void HUDRenderer::drawObjectiveBar(const HudModel &m, const OrderTask &t,
   washText(wordX, objY + 1, wordW, objH - 2, FONT_LABEL, theme::text, ML_DATUM,
            word);
   _tft.drawBitmap(iconX, objY + (objH - ic.h) / 2, ic.bits, ic.w, ic.h, accent);
+
+  int16_t leftEnd = wordX + wordW;
 
   const int count = m.order.taskCount;
   if (count > 1) {
@@ -709,6 +697,31 @@ void HUDRenderer::drawObjectiveBar(const HudModel &m, const OrderTask &t,
       } else {
         _tft.drawRect(px, py, pipS, pipS, theme::goldDim);
       }
+    }
+    leftEnd = px - pipGap;
+  }
+
+  // --- "VICTORY IN:" — the defence's own deadline, not the order's ---------
+  // The clock itself always fits; only its label is optional. When the status
+  // word and pips leave no room the label is dropped rather than overprinted,
+  // which is what "DEFENSE" + "VICTORY IN:" used to do on a three-target
+  // invasion.
+  _victoryX = 0;
+  _victoryW = 0;
+  if (t.planet.event.active) {
+    _tft.setFreeFont(FONT_LABEL);
+    const int16_t vW = max(_tft.textWidth("88d 88h"), _tft.textWidth("EXPIRED")) + 2;
+    _tft.setFreeFont(FONT_BODY);
+    const String label = F("VICTORY IN:");
+    const int16_t labelW = _tft.textWidth(label.c_str());
+
+    _victoryX = flagX - victoryGap - vW;
+    _victoryW = vW;
+
+    const int16_t labelX = _victoryX - 6 - labelW;
+    if (labelX > leftEnd + objIconGap) {
+      washText(labelX, objY + 1, labelW, objH - 2, FONT_BODY, theme::grey,
+               MR_DATUM, label);
     }
   }
 }
@@ -884,10 +897,10 @@ void HUDRenderer::drawVerdict(const HudModel &m, const OrderTask &t) {
   const GFXfont *leftFont = FONT_VALUE;
   char buf[32];
   if (p.valid && p.event.active) {
-    snprintf(buf, sizeof(buf), "%.4f%% DEFENDED", p.event.defended());
+    snprintf(buf, sizeof(buf), "%.0f%% DEFENDED", p.event.defended());
     left = buf;
   } else if (p.valid && taskIsLiberation(t.taskType)) {
-    snprintf(buf, sizeof(buf), "%.4f%% LIBERATED", p.liberation);
+    snprintf(buf, sizeof(buf), "%.0f%% LIBERATED", p.liberation);
     left = buf;
   } else {
     const StatusLine st = objectiveStatus(t);

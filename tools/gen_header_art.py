@@ -150,14 +150,19 @@ def header_bg(w, h):
 
     # --- Earth photo, faded in left-to-right -------------------------------
     # Blow the globe up to 5x the strip height so only a band across its middle
-    # shows, then take that band. The globe ends up narrower than the strip, so
-    # the crop runs off its right edge into black — which is the point: the
-    # planet's limb lands about 60% across, right where the gold shaft falls.
+    # shows, then take that band.
+    #
+    # Retuned for the objective bar (0b1b5ef), which is where this wash now
+    # lives; it was cut for the old full-width title bar. That bar's left end
+    # carries the DEFENSE/LIBERATION word and its right end the gold expiry
+    # flag, so the artwork only reads in the middle. The crop and the fade
+    # below are pulled left so the globe's limb lands in that open span
+    # instead of under the flag.
     earth = Image.open(os.path.join(ASSETS, "earth_nasa.jpg")).convert("RGB")
     target_h = H * 5
     scale = target_h / earth.height
     big = earth.resize((int(earth.width * scale), target_h), Image.LANCZOS)
-    x0 = max(0, min(int(big.width * 0.55), big.width - W))
+    x0 = max(0, min(int(big.width * 0.42), big.width - W))
     y0 = (big.height - H) // 2
     strip = big.crop((x0, y0, x0 + W, y0 + H)).filter(ImageFilter.GaussianBlur(2))
     # 55% of the photo plus 45% of a flat navy — it reads as background art
@@ -170,14 +175,17 @@ def header_bg(w, h):
     mask = Image.new("L", (W, H), 0)
     md = ImageDraw.Draw(mask)
     for x in range(W):
-        # Nothing until 22% across, full strength by 55%.
-        t = min(1.0, max(0.0, (x - W * 0.22) / (W * 0.33)))
+        # Nothing until 12% across (behind the status word), full strength by
+        # 40%, then held — the flag covers the right end anyway.
+        t = min(1.0, max(0.0, (x - W * 0.12) / (W * 0.28)))
         md.line([(x, 0), (x, H)], fill=int(255 * t))
     img.paste(strip, (0, 0), mask)
 
     # --- diagonal gold light shaft -----------------------------------------
     sweep = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    sx, sw = int(W * 0.62), int(W * 0.05)
+    # Shaft moved in from 62% to 46%: at 62% it fell under the expiry flag and
+    # was never seen.
+    sx, sw = int(W * 0.46), int(W * 0.05)
     ImageDraw.Draw(sweep).polygon(
         [(sx, 0), (sx + sw, 0), (sx - int(H * 0.5) + sw, H), (sx - int(H * 0.5), H)],
         fill=GOLD + (90,))

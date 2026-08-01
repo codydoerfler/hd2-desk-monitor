@@ -264,9 +264,9 @@ constexpr int16_t ribIconGap = 8;
 // photograph, and nothing is drawn here that the API did not supply.
 constexpr int16_t scenePad = 12;
 constexpr int16_t chipGap = 9;
-constexpr int16_t sceneTitleDy = 5, sceneTitleH = 17;   // row-relative
-constexpr int16_t sceneBiomeDy = 23, sceneBiomeH = 15;
-constexpr int16_t sceneChipDy = 41;
+constexpr int16_t sceneTitleDy = 4, sceneTitleH = 17;   // row-relative
+constexpr int16_t sceneBiomeDy = 21, sceneBiomeH = 22;
+constexpr int16_t sceneChipDy = 44;
 constexpr int16_t sceneWeavePitch = 4;
 
 // Progress bars: track on the left, %/h readout in a fixed column on the
