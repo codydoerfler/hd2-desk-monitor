@@ -55,6 +55,14 @@ class HUDRenderer {
   // target-specific.
   void drawCard(const HudModel &m);
   void drawObjectiveBar(const HudModel &m, const OrderTask &t, uint16_t accent);
+  // The Earth/gold-sweep wash behind the objective bar. drawWash() scales the
+  // generated art onto any destination rect; drawObjWash() is the objective
+  // bar's own, and takes the sub-rect to repaint.
+  void drawWash(int16_t sx, int16_t sy, int16_t sw, int16_t sh,
+                int16_t dx, int16_t dy, int16_t dw, int16_t dh);
+  void drawObjWash(int16_t sx, int16_t sy, int16_t sw, int16_t sh);
+  void washText(int16_t x, int16_t y, int16_t w, int16_t h, const GFXfont *font,
+                uint16_t fg, uint8_t datum, const String &s);
   void drawIdentity(const OrderTask &t, uint16_t accent);
   void drawAlertRibbon(const OrderTask &t, uint16_t accent);
   // The biome band. Also carries the order's own title, which the objective bar
