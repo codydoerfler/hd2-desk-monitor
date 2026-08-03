@@ -30,10 +30,20 @@ a Super Earth command-terminal style HUD.
 - `src/hud_renderer.cpp` / `.h` — all drawing code, the actual HUD layout
   (largest file, ~1200 lines). This is where screen states live: idle,
   liberation, defense, invasion, stale/offline, boot screen.
-- `src/hud_icons.h` — generated icon bitmap tables (glyphs for stat tiles,
-  faction badges, crest/skull mark, shield icon, etc).
-- `src/hud_header_art.h` — generated header/title-bar art (Major Order card
-  badge, separate from hud_icons.h — easy to miss when updating marks).
+- `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
+  tiles, crest/skull mark, shield icon, hazard chips, etc).
+- `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
+  for Automaton/Terminid/Illuminate. Separate from hud_icons.h because these
+  three carry their own colour rather than being 1-bit masks tinted by the
+  caller — see the file's header comment for why.
+- `src/hud_biomes.h` — generated biome backdrop strips for the campaign
+  screen, one per planet terrain type.
+- `src/hud_header_art.h` — generated header-bar art: just the Earth/gold-sweep
+  background wash now (`headerBg`). It used to also hold a disc-and-arcs badge
+  with a traced skull (`headerBadge`/`headerSkull`) for the old title-bar
+  design; that design was superseded and the dead, visibly-broken assets were
+  removed rather than left around — see git history before that removal if
+  reviving that look is ever wanted.
 - `src/hud_fonts.h`, `src/hud_font_anton.h` — font tables.
 - `src/config.h` — tunables, most also exposed as `platformio.ini` build
   flags (poll interval, API contact header, etc).
@@ -45,17 +55,28 @@ ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
 to check a layout/art change before flashing real hardware. Current preview
 outputs sit at repo root: `preview_boot.png`, `preview_idle.png`,
 `preview_liberation.png`, `preview_defense.png`, `preview_invasion.png`,
-`preview_stale.png`. Regenerate after any renderer/icon change and look at
-them before calling a visual change done.
+`preview_stale.png`, `preview_campaign.png`. Regenerate after any
+renderer/icon change and look at them before calling a visual change done.
+
+There is also `docs/icon-audit/` — a standalone HTML report
+(`icon_audit.html`) that lays out every icon/mark in the project at a
+readable size with notes, generated as a one-off review tool while auditing
+the icon set. It is not wired into `tools/preview.sh` and has no regenerate
+script; treat it as a snapshot from when it was made, not a live view.
 
 Icon/art generator scripts (Python, in `tools/`):
 - `tools/gen_icons.py` — generates `src/hud_icons.h`. Contains the `crest()`
   function (scene-band corner icon) among others.
 - `tools/gen_header_art.py` — generates `src/hud_header_art.h` SEPARATELY
-  from gen_icons.py. Contains `traced_skull()` for the Major Order card
-  title-bar badge (`headerBadge`/`headerSkull`). **Do not assume one script
-  covers all icon/mark changes — there are three independent
-  skull-like-mark locations in this codebase, see below.**
+  from gen_icons.py. Now only emits the header-bar background wash
+  (`headerBg`) — see the source layout note above on why the old title-bar
+  badge/skull is gone.
+- `tools/gen_faction_icons.py` — generates `src/hud_faction_icons.h`, the
+  full-colour Automaton/Terminid/Illuminate badges. Source art is
+  `tools/assets/faction_*_source.png` (official insignia, reduced rather
+  than redrawn).
+- `tools/gen_biomes.py` — generates `src/hud_biomes.h`, the campaign-screen
+  terrain backdrops, from `tools/assets/biomes/*.webp`.
 - `tools/gen_anton_font.py` — generates the Anton display font table.
 - `tools/check_layout.py` — layout/bounds sanity checks.
 - `tools/assets/` — source art (e.g. `seaf_emblem.jpg`, skull source photos).
@@ -77,18 +98,32 @@ writing, the most recent work was a SEAF/skull rebrand:
   design (matches the "unknown faction" fallback style).
 - Winged skull (user-supplied source photo,
   `tools/assets/skull_wings_source.jpg` → `crest_mask_v2.png`) replaced the
-  project's previous skull/crest mark in all three places it appears:
+  project's previous crest mark:
   1. Scene-band corner icon (`crest()` in `tools/gen_icons.py`)
-  2. Major Order card title-bar badge (`traced_skull()` in
-     `tools/gen_header_art.py` — separate script from #1, easy to miss)
-  3. Boot screen — actually swapped OUT here in favor of the SEAF emblem
+  2. Boot screen — actually swapped OUT here in favor of the SEAF emblem
      per explicit request ("use the super earth logo on the startup
      screen"), so boot screen shows SEAF emblem, not the skull.
+  There used to be a third place — a traced version of this same skull inside
+  the Major Order title-bar badge (`headerBadge`/`headerSkull`) — but that
+  badge design was already superseded by a background-wash-only title bar
+  before this rebrand, the badge/skull generation was just never pruned. It
+  has since been removed (see the `hud_header_art.h` note above); don't go
+  looking for a third skull location, there are only two live ones now.
   `icons::shield` (Defense objective bar) and `icons::skull` (kill-count
   stat tile, a plain no-wings skull) are visually similar but were
   confirmed unrelated and intentionally left alone — don't touch them
   when asked to change "the skull icon" without double-checking which one
   is meant.
+- Full-colour faction badges (Automaton/Terminid/Illuminate) and biome
+  terrain backdrops for the campaign screen were added on top of the SEAF
+  rebrand — see the `hud_faction_icons.h`/`hud_biomes.h` and
+  `gen_faction_icons.py`/`gen_biomes.py` notes above. The Automaton badge
+  went through one revision: an earlier draft used a drawn robot-head shape,
+  caught by the icon audit as wrong (the actual insignia is a four-pointed
+  star) and corrected by replacing `tools/assets/faction_automaton_source.png`
+  and regenerating — `docs/icon-audit/icon_audit.html` predates that fix, so
+  its "automaton is not the faction insignia" finding is stale/resolved, not
+  an open issue.
 
 ## Working conventions for this project
 
@@ -107,6 +142,9 @@ writing, the most recent work was a SEAF/skull rebrand:
   poll, don't lower it much. The `HD2_CONTACT_HEADER` build flag in
   `platformio.ini` still has a placeholder TODO — replace with a real
   contact before running long-term against the public API.
-- This device is not yet flashed to real hardware as of the last commit
-  noted above — check with the user before assuming firmware is live on a
-  physical unit vs. still in host-preview/dev stage.
+- This device IS flashed and connected to real hardware (confirmed 2026-08-02:
+  a CH340 USB-serial adapter, VID:PID 1A86:7523, was present at
+  `/dev/cu.usbserial-210` on the Mac Mini). Don't assume based on git history
+  alone whether a unit is live — flashing doesn't require a commit. If in
+  doubt, check `pio device list` for a connected USB-serial adapter and ask
+  the user directly.
