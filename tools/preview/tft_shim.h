@@ -96,6 +96,10 @@ class TFT_eSPI {
     }
   }
 
+  void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t c) {
+    for (int16_t j = 0; j < h; ++j) drawPixel(x, y + j, c);
+  }
+
   void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t c) {
     for (int16_t i = 0; i < w; ++i) drawPixel(x + i, y, c);
   }
@@ -138,6 +142,17 @@ class TFT_eSPI {
   void pushImage(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *data) {
     for (int16_t j = 0; j < h; ++j)
       for (int16_t i = 0; i < w; ++i) drawPixel(x + i, y + j, data[j * w + i]);
+  }
+
+  // Key-colour overload: pixels equal to `transp` are skipped, leaving whatever
+  // was already there. Matches TFT_eSPI's own transparent pushImage().
+  void pushImage(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *data,
+                 uint16_t transp) {
+    for (int16_t j = 0; j < h; ++j)
+      for (int16_t i = 0; i < w; ++i) {
+        const uint16_t c = data[j * w + i];
+        if (c != transp) drawPixel(x + i, y + j, c);
+      }
   }
 
   void setFreeFont(const GFXfont *f) { _font = f; }

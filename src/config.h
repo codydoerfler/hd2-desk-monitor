@@ -159,6 +159,27 @@ constexpr int16_t rule1Y = 39;
 constexpr int16_t rule2Y = 84;
 constexpr int16_t targetY = 90, targetH = 34;
 constexpr int16_t barY = 132, barH = 36;
+// Campaign screen — what stands in for the idle screen when there is no Major
+// Order but the galaxy is still fighting. Shares the tile row and footer with
+// the idle screen; only the block above the tiles differs, so these all sit
+// between the header rule and tileY below.
+// Identity block, then the biome plate, then the readout. The plate is the
+// only photographic element on any screen, so everything else is pushed clear
+// of it rather than overlaid -- text on a photograph at this size is unreadable
+// however it is treated.
+// kCampNameH must clear FONT_HEADLINE's yAdvance (Anton24px = 37) or the
+// sprite clips the tops of the glyphs.
+constexpr int16_t kCampNameY = 44, kCampNameH = 38;
+constexpr int16_t kCampSectorY = 83, kCampSectorH = 16;
+constexpr int16_t kCampBadgeY = 50, kCampBadgeH = 22;
+constexpr int16_t kCampBiomeY = 104, kCampBiomeH = 84;
+constexpr int16_t kCampBarY = 194;
+constexpr int16_t kCampPctY = 218, kCampPctH = 24;
+// Four-value strip along the bottom, mirroring the companion app's: share of
+// the galaxy's divers, divers here, the players' push, the enemy's regen.
+constexpr int16_t kCampStripY = 250, kCampStripH = 26;
+constexpr int16_t kCampStripCols = 4;
+
 constexpr int16_t tileY = 180, tileH = 68, tileGap = 7;
 constexpr int16_t rule3Y = 260;
 constexpr int16_t footerY = 285, footerH = 15;

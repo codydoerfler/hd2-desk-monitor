@@ -295,6 +295,129 @@ bool HD2Api::fetchPlanet(int32_t index, PlanetInfo &out) {
   return true;
 }
 
+bool HD2Api::fetchTopCampaign(PlanetInfo &out) {
+  out = PlanetInfo();
+
+  // Each campaign embeds its planet in full, so this filter is the planet
+  // filter one level down. [0] is ArduinoJson's "every element of this array".
+  JsonDocument filter;
+  JsonObject p = filter[0]["planet"].to<JsonObject>();
+  p["index"] = true;
+  p["name"] = true;
+  p["sector"] = true;
+  p["biome"]["name"] = true;
+  p["hazards"][0]["name"] = true;
+  p["currentOwner"] = true;
+  p["health"] = true;
+  p["maxHealth"] = true;
+  p["regenPerSecond"] = true;
+  p["statistics"]["playerCount"] = true;
+  p["event"]["faction"] = true;
+  p["event"]["health"] = true;
+  p["event"]["maxHealth"] = true;
+  p["event"]["endTime"] = true;
+  p["event"]["eventType"] = true;
+  p["regions"][0]["health"] = true;
+  p["regions"][0]["maxHealth"] = true;
+  p["regions"][0]["regenPerSecond"] = true;
+  p["regions"][0]["isAvailable"] = true;
+
+  JsonDocument doc;
+  if (!getJson("/api/v1/campaigns", doc, &filter)) return false;
+
+  JsonArray arr = doc.as<JsonArray>();
+  if (arr.isNull() || arr.size() == 0) {
+    // No campaigns at all is a real state, not a transport failure — the
+    // caller keeps the placeholder screen rather than flagging an error.
+    _lastError = F("no active campaigns");
+    return false;
+  }
+
+  // Busiest planet wins. That is where the war actually is, and it changes
+  // slowly enough that the screen doesn't flip between planets every poll.
+  JsonObject best;
+  uint32_t bestPlayers = 0;
+  for (JsonVariant c : arr) {
+    JsonObject pl = c["planet"];
+    if (pl.isNull()) continue;
+    const uint32_t n = pl["statistics"]["playerCount"] | 0U;
+    if (best.isNull() || n > bestPlayers) {
+      best = pl;
+      bestPlayers = n;
+    }
+  }
+  if (best.isNull()) {
+    _lastError = F("campaigns carried no planet");
+    return false;
+  }
+
+  out.index = best["index"] | -1;
+  out.name = best["name"] | "UNKNOWN";
+  out.sector = best["sector"] | "";
+  out.biome = best["biome"]["name"] | "";
+  out.owner = best["currentOwner"] | "";
+  out.health = best["health"] | 0U;
+  out.maxHealth = best["maxHealth"] | 0U;
+  out.playerCount = bestPlayers;
+  out.regenPerSecond = best["regenPerSecond"] | 0.0f;
+
+  JsonArray hz = best["hazards"].as<JsonArray>();
+  if (!hz.isNull()) {
+    for (JsonVariant h : hz) {
+      if (out.hazardCount >= kMaxHazards) break;
+      const HazardKind k = hazardFromName(String(h["name"] | ""));
+      if (k == kHazardNone) continue;
+      out.hazards[out.hazardCount++] = k;
+    }
+  }
+
+  JsonObject ev = best["event"];
+  if (!ev.isNull()) {
+    out.event.active = true;
+    out.event.faction = ev["faction"] | "";
+    out.event.health = ev["health"] | 0U;
+    out.event.maxHealth = ev["maxHealth"] | 0U;
+    out.event.endTime = parseIso8601Utc(ev["endTime"] | "");
+    out.event.eventType = ev["eventType"] | 0;
+  }
+
+  // Progress on a region planet is fought region by region, and the planet's
+  // own health pair never moves -- Phact Bay sat at a full 2,200,000/2,200,000
+  // while a third of a percent had already been taken. So when regions are
+  // present the percentage comes from those instead.
+  //
+  // Only regions the game currently lets you drop into count. Locked ones sit
+  // at full health indefinitely and would drag the figure toward zero: on that
+  // same planet, counting all three read 0.23% against the 0.46% actually
+  // taken, because two of them were not yet in play.
+  uint64_t regHealth = 0, regMax = 0;
+  float regRegen = 0.0f;
+  JsonArray regions = best["regions"].as<JsonArray>();
+  if (!regions.isNull()) {
+    for (JsonVariant r : regions) {
+      if (!(r["isAvailable"] | false)) continue;
+      regHealth += (uint32_t)(r["health"] | 0U);
+      regMax += (uint32_t)(r["maxHealth"] | 0U);
+      regRegen += r["regenPerSecond"] | 0.0f;
+    }
+  }
+
+  if (regMax > 0) {
+    out.liberation = 100.0f * (1.0f - (float)regHealth / (float)regMax);
+    // The decay figure has to describe the same pool as the percentage.
+    out.health = (uint32_t)regHealth;
+    out.maxHealth = (uint32_t)regMax;
+    out.regenPerSecond = regRegen;
+  } else if (out.maxHealth > 0) {
+    // Same inversion as fetchPlanet(): health counts down as the push succeeds.
+    out.liberation = 100.0f * (1.0f - (float)out.health / (float)out.maxHealth);
+  }
+  out.liberation = constrain(out.liberation, 0.0f, 100.0f);
+
+  out.valid = true;
+  return true;
+}
+
 bool HD2Api::fetchWar(WarStats &out) {
   out = WarStats();
 

@@ -16,6 +16,7 @@
 
 #define PROGMEM
 #define pgm_read_word(addr) (*(const uint16_t *)(addr))
+#define pgm_read_ptr(addr) (*(void *const *)(addr))
 #define pgm_read_byte(addr) (*(const uint8_t *)(addr))
 
 class String {
@@ -32,6 +33,9 @@ class String {
   String(unsigned long v) { char b[32]; snprintf(b, sizeof b, "%lu", v); _s = b; }
   String(long long v) { char b[32]; snprintf(b, sizeof b, "%lld", v); _s = b; }
   String(unsigned long long v) { char b[32]; snprintf(b, sizeof b, "%llu", v); _s = b; }
+  // Arduino's fixed-decimal ctor. Used where a float has to go into a content
+  // signature at a stable precision.
+  String(double v, int dp = 2) { char b[40]; snprintf(b, sizeof b, "%.*f", dp, v); _s = b; }
   String(float v) { char b[32]; snprintf(b, sizeof b, "%.2f", (double)v); _s = b; }
   String(double v) { char b[32]; snprintf(b, sizeof b, "%.2f", v); _s = b; }
 

@@ -49,9 +49,13 @@ class HUDRenderer {
   void drawFrame();
   // The plain "SUPER EARTH" strip, used by every screen that is not showing a
   // Major Order.
-  void drawStatusHeader();
+  // `title` names the screen; empty keeps the default SUPER EARTH strip.
+  void drawStatusHeader(const String &title = String());
   void drawBody(const HudModel &m, time_t nowUtc);
   void drawIdleBody(const HudModel &m);
+  // Stands in for the idle screen whenever a live campaign was found: the
+  // busiest planet in the galaxy, drawn as a liberation readout.
+  void drawCampaignBody(const HudModel &m);
   void drawWifi(bool up);
   void drawFooter(const HudModel &m, time_t nowUtc);
 
@@ -61,6 +65,10 @@ class HUDRenderer {
   // target-specific.
   void drawCard(const HudModel &m);
   void drawObjectiveBar(const HudModel &m, const OrderTask &t, uint16_t accent);
+  // A biome photograph scaled into an arbitrary rect. Shares drawWash()'s
+  // scaler; see tools/gen_biomes.py for why the plates are stored at half size.
+  void drawBiome(const uint16_t *src, int16_t sw, int16_t sh, int16_t dx,
+                 int16_t dy, int16_t dw, int16_t dh);
   // The Earth/gold-sweep wash behind the objective bar. drawWash() scales the
   // generated art onto any destination rect; drawObjWash() is the objective
   // bar's own, and takes the sub-rect to repaint.

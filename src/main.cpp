@@ -219,6 +219,28 @@ static void poll() {
     }
   }
 
+  // With no Major Order there is no task list and therefore no planet, so the
+  // screen would have nothing on it but a placeholder. Fall back to the
+  // busiest live campaign. Only costs a request in the state that would
+  // otherwise be idle, so the steady-state request budget is unchanged.
+  PlanetInfo campaign;
+  if (!order.valid) {
+    delay(kInterRequestDelayMs);
+    Serial.println(F("[poll] no order — fetching campaigns"));
+    if (api.fetchTopCampaign(campaign)) {
+      const time_t now = time(nullptr);
+      if (now > 1600000000) campaign.observedAt = now;
+      Serial.printf("[poll] campaign: %s, %.2f%% lib, %u divers\n",
+                    campaign.name.c_str(), campaign.liberation,
+                    (unsigned)campaign.playerCount);
+    } else {
+      // Not an error: a quiet galaxy, or the fetch failed. Either way the
+      // previous campaign is better than blanking the screen.
+      Serial.printf("[poll] campaign lookup: %s\n", api.lastError().c_str());
+      campaign = model.campaign;
+    }
+  }
+
   // War stats are garnish — a failure here never fails the poll, and we keep
   // whatever we had before.
   delay(kInterRequestDelayMs);
@@ -231,6 +253,24 @@ static void poll() {
   // Reads the *outgoing* model.order, so it has to run before the assignment.
   rollRateHistory(order);
 
+  // Same rule for the campaign: only advance the sample when the incoming
+  // observation is actually newer, so a carried-forward snapshot can't be
+  // diffed against itself. A different planet resets rather than diffing two
+  // unrelated liberations.
+  {
+    RateSample &h = model.campaignHistory;
+    const PlanetInfo &prev = model.campaign;
+    if (!campaign.valid || h.planetIndex != campaign.index) h = RateSample();
+    if (campaign.valid && prev.valid && prev.index == campaign.index &&
+        prev.observedAt > h.at && prev.observedAt < campaign.observedAt) {
+      h.valid = true;
+      h.planetIndex = prev.index;
+      h.at = prev.observedAt;
+      h.libPct = prev.liberation;
+    }
+  }
+
+  model.campaign = campaign;
   model.order = order;
   model.war = war;
   model.haveData = true;

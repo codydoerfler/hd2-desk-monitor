@@ -146,6 +146,30 @@ static HudModel sceneIdle() {   // polled fine, but there is no Major Order
   return m;
 }
 
+// No Major Order, but the campaigns feed found a live fight. This is what the
+// idle screen is replaced by whenever that lookup succeeds.
+static HudModel sceneCampaign() {
+  HudModel m = sceneIdle();
+  m.campaign.valid = true;
+  m.campaign.index = 64;
+  m.campaign.name = "GEMMA";
+  m.campaign.sector = "Ursa";
+  m.campaign.owner = "Terminids";
+  m.campaign.biome = "Jungle";
+  m.campaign.maxHealth = 1000000;
+  m.campaign.health = 994405;      // 0.5595% liberated
+  m.campaign.liberation = 0.5595f;
+  m.campaign.playerCount = 4001;
+  m.campaign.regenPerSecond = 2.78f;
+  m.campaign.observedAt = 1785700000;
+  // A previous sample an hour back, so the bar can quote a real %/h.
+  m.campaignHistory.valid = true;
+  m.campaignHistory.planetIndex = 64;
+  m.campaignHistory.at = 1785700000 - 3600;
+  m.campaignHistory.libPct = 0.5595f - 1.592f;
+  return m;
+}
+
 static HudModel sceneStale() {  // link down, last good data still on screen
   HudModel m = sceneInvasion();
   m.stale = true; m.wifiUp = false; m.lastSuccess = kNow - 3600;
@@ -161,6 +185,7 @@ int main(int argc, char **argv) {
   std::map<String, std::function<HudModel()>> scenes{
       {"defense", sceneDefense},   {"invasion", sceneInvasion},
       {"liberation", sceneLiberation}, {"idle", sceneIdle},
+      {"campaign", sceneCampaign},
       {"stale", sceneStale},
   };
 

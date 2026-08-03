@@ -73,6 +73,74 @@ struct PlanetEvent {
 };
 
 // One planet (GET /api/v1/planets/{index}).
+// --- Biome backdrop ---------------------------------------------------------
+//
+// Index into biomes::table in hud_biomes.h, matched from the API's biome name.
+//
+// This mapping is a judgement call, not an authority. The API names biomes in
+// the game's own vocabulary ("Ionic Jungle", "Desert Cliffs") while the art set
+// is labelled in another ("Charged Primordial", "Craggy Sands"), and nothing
+// joins the two: the art's own biome ids identify a family, not a variant. So
+// this matches on keywords the way hazardFromName() does, and picks the closest
+// plate. A miss shows a plausible landscape of the wrong flavour, never a
+// broken screen -- kBiomeUnknown is the floor.
+enum : int8_t {
+  kBiomeBlackhole1 = 0, kBiomeBlackhole2, kBiomeBlackhole3, kBiomeBlackholeBase,
+  kBiomeBlackholeConv, kBiomeBugHive, kBiomeConiferous, kBiomeCyberstan,
+  kBiomeDeciduousAutumn, kBiomeDeciduous, kBiomeGlacier, kBiomeGlacierBot,
+  kBiomeGlacierRocky, kBiomeGlacierIndustrial, kBiomeMagma, kBiomeMoorArid,
+  kBiomeMoor, kBiomeMoorRed, kBiomeMoorTundra, kBiomePrimordial,
+  kBiomePrimordialBlue, kBiomePrimordialBug, kBiomePrimordialDead,
+  kBiomePrimordialPurple, kBiomePrimordialTame, kBiomeSandyAcid, kBiomeSandy,
+  kBiomeSandyMineral, kBiomeSandyMoon, kBiomeSandySpiky, kBiomeSandyTutorial,
+  kBiomeSuperEarth, kBiomeSwamp, kBiomeSwampHaunted, kBiomeUnknown,
+};
+
+inline int8_t biomeFromName(const String &raw) {
+  String s = raw;
+  s.toLowerCase();
+  if (s.length() == 0) return kBiomeUnknown;
+
+  // Most specific first: several of these also contain a broader keyword.
+  if (s.indexOf("supercolony") >= 0) return kBiomePrimordialBug;
+  if (s.indexOf("hive") >= 0) return kBiomeBugHive;
+  if (s.indexOf("ethereal") >= 0) return kBiomePrimordialPurple;
+  if (s.indexOf("crimson") >= 0) return kBiomeMoorRed;
+  if (s.indexOf("ionic") >= 0 || s.indexOf("charged") >= 0) return kBiomePrimordialBlue;
+  if (s.indexOf("boneyard") >= 0 || s.indexOf("parasit") >= 0) return kBiomePrimordialDead;
+  if (s.indexOf("volcan") >= 0 || s.indexOf("magma") >= 0 || s.indexOf("molten") >= 0 ||
+      s.indexOf("scorch") >= 0)
+    return kBiomeMagma;
+  if (s.indexOf("haunt") >= 0) return kBiomeSwampHaunted;
+  if (s.indexOf("swamp") >= 0 || s.indexOf("bog") >= 0) return kBiomeSwamp;
+  if (s.indexOf("jungle") >= 0 || s.indexOf("primordial") >= 0 || s.indexOf("lush") >= 0)
+    return kBiomePrimordial;
+  if (s.indexOf("tundra") >= 0) return kBiomeMoorTundra;
+  if (s.indexOf("glacier") >= 0 || s.indexOf("arctic") >= 0 || s.indexOf("icy") >= 0 ||
+      s.indexOf("ice") >= 0 || s.indexOf("snow") >= 0)
+    return kBiomeGlacier;
+  if (s.indexOf("acid") >= 0) return kBiomeSandyAcid;
+  if (s.indexOf("moon") >= 0 || s.indexOf("lunar") >= 0) return kBiomeSandyMoon;
+  if (s.indexOf("cliff") >= 0 || s.indexOf("craggy") >= 0 || s.indexOf("canyon") >= 0 ||
+      s.indexOf("mesa") >= 0 || s.indexOf("spiky") >= 0)
+    return kBiomeSandySpiky;
+  if (s.indexOf("rocky") >= 0 || s.indexOf("mineral") >= 0) return kBiomeSandyMineral;
+  if (s.indexOf("desert") >= 0 || s.indexOf("sand") >= 0 || s.indexOf("dune") >= 0 ||
+      s.indexOf("badland") >= 0 || s.indexOf("arid") >= 0)
+    return kBiomeSandy;
+  if (s.indexOf("moor") >= 0 || s.indexOf("deadland") >= 0) return kBiomeMoorArid;
+  if (s.indexOf("plain") >= 0 || s.indexOf("highland") >= 0 || s.indexOf("meadow") >= 0)
+    return kBiomeMoor;
+  if (s.indexOf("conifer") >= 0 || s.indexOf("pine") >= 0) return kBiomeConiferous;
+  if (s.indexOf("autumn") >= 0) return kBiomeDeciduousAutumn;
+  if (s.indexOf("forest") >= 0 || s.indexOf("deciduous") >= 0 || s.indexOf("wood") >= 0)
+    return kBiomeDeciduous;
+  if (s.indexOf("terraform") >= 0 || s.indexOf("super earth") >= 0) return kBiomeSuperEarth;
+  if (s.indexOf("singularity") >= 0 || s.indexOf("black hole") >= 0)
+    return kBiomeBlackholeBase;
+  return kBiomeUnknown;
+}
+
 struct PlanetInfo {
   bool valid = false;
   int32_t index = -1;
@@ -84,6 +152,10 @@ struct PlanetInfo {
   uint32_t maxHealth = 0;
   uint32_t playerCount = 0;
   float liberation = 0.0f;   // 0..100
+  // Health the planet claws back on its own, per second. The enemy's half of
+  // the tug-of-war: the net rate the HUD shows is the players' push minus
+  // this. Only the campaigns feed reports it; a plain planet fetch leaves it 0.
+  float regenPerSecond = 0.0f;
   PlanetEvent event;
   HazardKind hazards[kMaxHazards] = {};
   uint8_t hazardCount = 0;
@@ -202,6 +274,14 @@ struct HudModel {
   // happened.
   RateSample history[kMaxOrderTasks];
   int32_t historyOrderId = 0;
+
+  // Where the war is when High Command has nothing to say. With no Major
+  // Order the assignments feed is empty and no planet is fetched at all, so
+  // the screen used to fall back to a placeholder; this is the busiest active
+  // campaign, fetched only in that case, so the idle state shows live combat
+  // instead. Its own rate history, since it is not one of the order's tasks.
+  PlanetInfo campaign;
+  RateSample campaignHistory;
 
   bool haveData = false;      // at least one successful poll since boot
   bool stale = false;         // last poll failed / data older than kStaleAfterS
