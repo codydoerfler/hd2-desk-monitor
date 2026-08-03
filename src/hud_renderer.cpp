@@ -150,12 +150,21 @@ static String sectorLabel(const String &sector) {
   return s;
 }
 
-// Player counts, grouped and zero-padded to six digits: 13637 -> "013,637".
-// The padding keeps the footer's left block a constant width, so it doesn't
-// twitch as divers come and go.
+// Player counts, grouped: 13637 -> "13,637".
+//
+// This used to zero-pad to six digits ("013,637") so the footer's left block
+// kept a constant width and did not twitch as divers came and went. The
+// padding read as part of the number rather than as alignment, so it is gone;
+// the callers hold their own width instead — see kCountBoxW below and the
+// fixed-width column boxes in drawCampaignBody().
+// Width to clear for a formatCount() field, in FONT_BODY. Six grouped digits
+// ("999,999") is past any plausible diver count, so the box never has to grow
+// mid-frame and the number never has to be padded to fill it.
+static constexpr int16_t kCountBoxW = 62;
+
 static String formatCount(uint32_t v) {
   char digits[16];
-  snprintf(digits, sizeof(digits), "%06lu", (unsigned long)v);
+  snprintf(digits, sizeof(digits), "%lu", (unsigned long)v);
   const int n = (int)strlen(digits);
   String out;
   out.reserve(n + n / 3);
@@ -1112,8 +1121,10 @@ void HUDRenderer::drawBody(const HudModel &m, time_t nowUtc) {
     drawCard(m);
     drawRule(cardRuleY);
   } else if (m.campaign.valid) {
+    // No rule3 here: the four-value strip runs to 278, well past rule3Y (260),
+    // so the line landed across the digits. The strip's own column dividers
+    // already separate it from the footer.
     drawCampaignBody(m);
-    drawRule(rule3Y);
   } else {
     drawIdleBody(m);
     drawRule(rule3Y);
@@ -1186,15 +1197,21 @@ void HUDRenderer::drawCampaignBody(const HudModel &m) {
   snprintf(regen, sizeof(regen), "%.2f%%", regenPctPerHour);
 
   const int16_t colW = contentW / kCampStripCols;
-  const struct { const char *v; uint16_t c; } cols[kCampStripCols] = {
-      {share, theme::gold}, {here, theme::text},
-      {push, theme::blue},  {regen, accent},
+  // "/H" on the two rates because they are per-hour and the values carry only
+  // a percent sign; without it "2.593%" reads as a position, not a speed.
+  const struct { const char *cap; const char *v; uint16_t c; } cols[kCampStripCols] = {
+      {"SHARE",  share, theme::gold}, {"DIVERS",   here,  theme::text},
+      {"PUSH /H", push, theme::blue}, {"REGEN /H", regen, accent},
   };
+  const int16_t stripH = (kCampStripValY + kCampStripValH) - kCampStripY;
   for (int i = 0; i < kCampStripCols; i++) {
     const int16_t x = padX + i * colW;
-    textBox(x, kCampStripY, colW - 6, kCampStripH, theme::bg, FONT_LABEL, cols[i].c,
-            ML_DATUM, cols[i].v);
-    if (i) _tft.drawFastVLine(x - 4, kCampStripY + 4, kCampStripH - 8, theme::cardEdge);
+    // nullptr font == TFT_eSPI's built-in 6x8 GLCD face; see setFreeFont().
+    textBox(x, kCampStripY, colW - 6, kCampStripCapH, theme::bg, nullptr,
+            theme::grey, ML_DATUM, cols[i].cap);
+    textBox(x, kCampStripValY, colW - 6, kCampStripValH, theme::bg, FONT_LABEL,
+            cols[i].c, ML_DATUM, cols[i].v);
+    if (i) _tft.drawFastVLine(x - 4, kCampStripY + 2, stripH - 4, theme::cardEdge);
   }
 }
 
@@ -1261,7 +1278,10 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
 
   // --- left: divers present -----------------------------------------------
   if (_cardMode) {
-    const int16_t w = icons::diverW + footIconGap + _tft.textWidth(divers.c_str());
+    // Cleared to a fixed width rather than to the width of this frame's text:
+    // the count is no longer zero-padded, so "9,412" following "18,204" would
+    // otherwise leave the old digits' tail on screen.
+    const int16_t w = icons::diverW + footIconGap + kCountBoxW;
     textBox(cardX, y, w, h, theme::bg, FONT_BODY, theme::gold, ML_DATUM, divers,
             icons::diverW + footIconGap);
     _tft.drawBitmap(cardX, y + (h - icons::diverH) / 2, icons::diver, icons::diverW,

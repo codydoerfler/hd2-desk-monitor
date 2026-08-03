@@ -177,7 +177,18 @@ constexpr int16_t kCampBarY = 194;
 constexpr int16_t kCampPctY = 218, kCampPctH = 24;
 // Four-value strip along the bottom, mirroring the companion app's: share of
 // the galaxy's divers, divers here, the players' push, the enemy's regen.
-constexpr int16_t kCampStripY = 250, kCampStripH = 26;
+//
+// Two rows: a caption in the built-in 6x8 GLCD font over the value in
+// FONT_LABEL. The captions are what make the strip readable -- four bare
+// percentages in four colours is a puzzle, not a readout -- and 6x8 is the
+// only face small enough to caption a row this tight, the smallest free font
+// being 9pt.
+//
+// Note this block runs to 278, past rule3Y (260). The campaign screen
+// therefore draws no rule3: it used to, and the line went straight through
+// the digits. See drawCampaignBody().
+constexpr int16_t kCampStripY = 246, kCampStripCapH = 10;
+constexpr int16_t kCampStripValY = 256, kCampStripValH = 22;
 constexpr int16_t kCampStripCols = 4;
 
 constexpr int16_t tileY = 180, tileH = 68, tileGap = 7;
