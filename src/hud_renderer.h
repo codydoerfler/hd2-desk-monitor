@@ -47,6 +47,13 @@ class HUDRenderer {
   // --- composite sections ---
   // Outer frame and corner brackets; on their own on every screen.
   void drawFrame();
+  // LIBCON status chip: a small colour-coded pill, right-aligned above the
+  // footer's sync line. `tier` is 1-5 (1 = white .. 5 = blue, matching the
+  // community app's own legend); 0 or out of range leaves it undrawn.
+  // Returns the x just past the chip's right edge; unused by its one caller
+  // (drawFooter, which positions it independently) but kept for symmetry
+  // with the row-packing helpers elsewhere in this file.
+  int16_t drawLibcon(int16_t x, int16_t y, int16_t h, int8_t tier);
   // The plain "SUPER EARTH" strip, used by every screen that is not showing a
   // Major Order.
   // `title` names the screen; empty keeps the default SUPER EARTH strip.
@@ -142,7 +149,6 @@ class HUDRenderer {
   // what measures the gold flag against its own text.
   int16_t _flagX = 0, _flagW = 0;
   int16_t _victoryX = 0, _victoryW = 0;
-
   // Carousel over the order's targets. An order can name three planets and
   // there is no room to show three of these cards at a legible size, so they
   // take turns. Index into MajorOrder::tasks, plus the millis() stamp of the

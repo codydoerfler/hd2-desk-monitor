@@ -293,3 +293,33 @@ struct HudModel {
   // boot (see main.cpp); durations such as the countdown ignore it.
   int16_t utcOffsetMin = 0;
 };
+
+// --- LIBCON ------------------------------------------------------------
+//
+// The community app's own "Liberty Readiness Condition" -- a DEFCON parody,
+// not a field the API publishes. Its site derives tier 1 from two inputs
+// this device has no access to (a keyword scan over Super Earth's news
+// dispatches, and a flag for Super Earth itself being under direct attack),
+// so this mirrors only the part of its logic this device's own poll data can
+// honestly support, and never claims tier 1 on its own -- the reference
+// app's own FAQ says that tier is reserved for an explicit declaration, not
+// something inferred from the war state.
+//
+//   2: a Major Order is active and at least one of its targets has a live
+//      defence running (an invasion in progress).
+//   3: a Major Order is active, no defence running.
+//   4: no Major Order, but the campaigns feed found a live fight (what the
+//      idle screen's campaign fallback is already showing).
+//   5: no Major Order, no live campaign -- the quietest state this device
+//      can observe.
+inline int8_t libconTier(const HudModel &m) {
+  if (!m.haveData) return 0;  // nothing polled yet: chip stays off
+  if (m.order.valid) {
+    for (int i = 0; i < m.order.taskCount; i++) {
+      if (m.order.tasks[i].valid && m.order.tasks[i].planet.event.active) return 2;
+    }
+    return 3;
+  }
+  if (m.campaign.valid) return 4;
+  return 5;
+}

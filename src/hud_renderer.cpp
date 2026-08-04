@@ -675,6 +675,26 @@ void HUDRenderer::drawFrame() {
   _tft.fillRect(x1 - T + 1, y1 - L + 1, T, L, theme::gold);
 }
 
+int16_t HUDRenderer::drawLibcon(int16_t x, int16_t y, int16_t h, int8_t tier) {
+  if (tier < 1 || tier > 5) return x;
+  // Matches the community app's own LIBCON legend: 1 white, 2 red, 3 yellow,
+  // 4 green, 5 blue.
+  static const uint16_t kTierColor[6] = {
+      0, theme::text, theme::red, theme::gold, theme::green, theme::blue,
+  };
+  const uint16_t fill = kTierColor[tier];
+  // White and yellow/green fills need dark ink; red and blue read better with
+  // light ink.
+  const uint16_t ink = (tier == 2 || tier == 5) ? theme::text : theme::bg;
+  const int16_t cy = y + (h - libconH) / 2;
+  _tft.fillRect(x, cy, libconW, libconH, fill);
+  _tft.drawRect(x, cy, libconW, libconH, theme::bg);
+  char label[12];
+  snprintf(label, sizeof(label), "LIBCON %d", tier);
+  textBox(x, cy, libconW, libconH, fill, FONT_LABEL, ink, MC_DATUM, label);
+  return x + libconW;
+}
+
 void HUDRenderer::drawStatusHeader(const String &title) {
   // Text only, flush with the content column. The emblem is drawn on this
   // screen at centrepiece size instead; at header height it read as a blob.
@@ -1266,7 +1286,9 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
     divers = (t && t->planet.valid) ? formatCount(t->planet.playerCount) : String("--");
   }
 
-  const String sig = synced + "|" + reward + "|" + divers + "|" + (m.stale ? "1" : "0");
+  const int8_t tier = libconTier(m);
+  const String sig = synced + "|" + reward + "|" + divers + "|" + (m.stale ? "1" : "0") +
+                      "|" + String(tier);
   if (sig == _footerSig) return;
   _footerSig = sig;
 
@@ -1292,6 +1314,20 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
   const int16_t syncR = _cardMode ? contentR - (2 * footDotR + 1) - 8 : contentR;
   textBox(syncR - 150, y, 150, h, theme::bg, FONT_BODY, syncColor, MR_DATUM, synced);
   _wifiSig = -1;  // the box above may have clipped the dot
+
+  // --- LIBCON: right-aligned above the sync line, sized per screen. Card
+  // mode has a clear run between the verdict row and the rule above the
+  // footer. The plain idle header/tile screen has the same clearance below
+  // that rule instead. The campaign screen is a third case: its four-value
+  // strip runs to y=278, within a few px of the footer itself, and it is
+  // the only screen with nothing else sharing the sync line -- so there the
+  // chip sits beside "SYNCED", not above it.
+  if (m.campaign.valid) {
+    drawLibcon(syncR - 150 - libconGap - libconW, y, h, tier);
+  } else {
+    const int16_t libconGapY = _cardMode ? cardRuleY - libconH - 4 : rule3Y + 4;
+    drawLibcon(syncR - libconW, libconGapY, libconH, tier);
+  }
 
   // --- centre: the order's reward -----------------------------------------
   if (reward.length()) {

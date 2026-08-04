@@ -138,6 +138,15 @@ constexpr int16_t frameH = screenH - 2 * frameY;  // 304
 constexpr int16_t bracketLen = 28;
 constexpr int16_t bracketThick = 3;
 
+// LIBCON status chip -- a small colour-coded pill inline in the top row
+// (idle header / objective bar), sized to sit comfortably in whatever gap
+// that row already has rather than floating outside the frame.
+constexpr int16_t libconW = 96;
+constexpr int16_t libconH = 18;
+// Horizontal clearance between the chip and the sync line, when they share
+// a row (the campaign screen's footer).
+constexpr int16_t libconGap = 14;
+
 // Content column.
 constexpr int16_t padX = 20;
 constexpr int16_t contentR = screenW - padX;            // 460 (exclusive)
