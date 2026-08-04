@@ -44,12 +44,18 @@ static const uint32_t kOtaCheckIntervalS = 3600;  // 1 hour
 // anything. One minute is enough for the first poll to land.
 static const uint32_t kOtaFirstCheckDelayS = 60;
 
-// A release JSON document larger than this is treated as a failed check.
-// The variable part of the response is the release body (the notes markdown),
-// and this parses out of a String holding the whole payload, so an
-// unbounded body would be an unbounded heap allocation on a part with no
-// PSRAM. 32KB is many times a normal response and far below what would hurt.
-static const size_t kOtaMaxReleaseJsonBytes = 32 * 1024;
+// A release JSON document larger than this is treated as a failed check. The
+// response is buffered whole before parsing, so without a bound this is an
+// unbounded heap allocation on a part with no PSRAM.
+//
+// Sized off measurement, not a guess: a release of this project runs a few KB
+// (one asset, generated notes), while the largest thing on github.com that
+// was to hand — a cli/cli release, 22 assets and 11KB of notes — came to
+// 50KB. 64KB clears that with room to spare and is still under a quarter of
+// the free heap. The cost of tripping it is that OTA stops working until the
+// release notes get shorter, which is a silly way to brick updates, so the
+// bound is deliberately generous rather than tight.
+static const size_t kOtaMaxReleaseJsonBytes = 64 * 1024;
 
 // The release asset the device looks for. CI publishes exactly this name.
 static const char *kOtaAssetName = "firmware.bin";

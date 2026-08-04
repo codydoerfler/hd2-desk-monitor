@@ -92,6 +92,15 @@ bool HD2Ota::fetchLatestRelease(String &tag, String &assetUrl,
   http.setConnectTimeout(kHttpTimeoutMs);
   http.setReuse(false);
 
+  // Ask for HTTP/1.0. Over 1.1 GitHub answers this endpoint with
+  // Transfer-Encoding: chunked and no Content-Length, which costs us both
+  // things we want here: the size guard below has nothing to test, and the
+  // body arrives with the chunk framing that HD2Api::getJson() documents as
+  // leaking through this core's stream reader. Asking for 1.0 gets a plain
+  // Content-Length-delimited response instead. HTTPUpdate does the same thing
+  // for the same reason.
+  http.useHTTP10(true);
+
   const String url = "https://api.github.com/repos/" + String(HD2_OTA_REPO) +
                      "/releases/latest";
   if (!http.begin(client, url)) {
@@ -117,6 +126,8 @@ bool HD2Ota::fetchLatestRelease(String &tag, String &assetUrl,
     return false;
   }
 
+  // Checked before the body is read, which is the only point at which it can
+  // do anything: getString() below allocates the whole payload at once.
   const int len = http.getSize();
   if (len > (int)kOtaMaxReleaseJsonBytes) {
     _lastError = "release JSON is " + String(len) + " bytes; refusing to buffer";
@@ -124,8 +135,7 @@ bool HD2Ota::fetchLatestRelease(String &tag, String &assetUrl,
     return false;
   }
 
-  // Buffered rather than stream-parsed, matching HD2Api::getJson() — see the
-  // note there about chunk framing leaking through getStream() on this core.
+  // Buffered rather than stream-parsed, matching HD2Api::getJson().
   const String body = http.getString();
   http.end();
 
