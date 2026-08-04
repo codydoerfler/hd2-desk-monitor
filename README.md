@@ -9,7 +9,9 @@ otherwise sit. It polls
 a Super Earth command-terminal HUD on a 4" 480x320 LCD.
 
 Read-only. No touch interaction, no buttons — plug it in, join it to WiFi once,
-and it runs.
+and it runs. It updates its own firmware from this repo's GitHub Releases, so
+USB is only needed for the first flash — see
+[Firmware updates](#firmware-updates).
 
 ![HUD preview](docs/preview.png)
 
@@ -84,7 +86,7 @@ Requires [PlatformIO Core](https://docs.platformio.org/en/latest/core/installati
 pip3 install --user platformio
 export PATH="$HOME/Library/Python/3.9/bin:$PATH"   # macOS; adjust for your Python
 
-git clone <this repo>
+git clone https://github.com/codydoerfler/hd2-desk-monitor.git
 cd hd2-desk-monitor
 
 pio run                 # build
@@ -96,10 +98,23 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 14.7 % (48,236 bytes static)**, **Flash 35.7 %
-(1,123,089 bytes)**. The `huge_app.csv` partition table is used because the default
-1.3 MB app partition overflows once TLS, WiFiManager and TFT_eSPI are linked
-in. OTA is out of scope, so giving up the second app slot costs nothing.
+Resource usage as built: **RAM 15.0 % (49,180 bytes static)**, **Flash 95.3 %
+(1,874,249 of 1,966,080 bytes)**.
+
+That flash figure is high because the `min_spiffs.csv` partition table splits
+the 4 MB into **two 1.875 MiB app slots**, which is what
+[OTA](#firmware-updates) needs: the running image stays put while an update is
+written into the other slot. The 128 KB SPIFFS partition that comes with the
+table is never mounted — every icon, font and backdrop is compiled into
+`PROGMEM` — so it costs nothing to leave there.
+
+> ⚠️ **Roughly 90 KB of headroom, and art is what eats it.** The next
+> substantial addition to `hud_biomes.h` or `hud_icons.h` may not fit. When it
+> stops fitting, the fix is a custom partition CSV that shrinks
+> `nvs`/`spiffs`/`coredump` and grows both app slots — **both**, and to the
+> same size, since OTA needs the inactive slot to hold a whole image. The
+> stock `huge_app.csv` is not an option any more; it has only one app slot and
+> would silently take OTA away.
 
 ---
 
@@ -225,6 +240,86 @@ treatment.
 
 ---
 
+## Firmware updates
+
+The device updates itself over the internet from this repo's
+[GitHub Releases](https://github.com/codydoerfler/hd2-desk-monitor/releases).
+Nothing has to be running on your network, and it works from any connection
+the device is plugged into — not just the one it was flashed on. USB is only
+needed for the very first flash.
+
+### How it works
+
+**Once an hour** (`kOtaCheckIntervalS` in `src/hd2_ota.h`; first check 60 s
+after boot) the device asks
+`api.github.com/repos/<owner>/<repo>/releases/latest` for the newest release.
+If that release's tag is a higher `MAJOR.MINOR.PATCH` than the version
+compiled into the running image, it downloads the release's `firmware.bin`
+asset and flashes it, then reboots into it.
+
+Hourly rather than anything faster because no part of this is time-critical —
+a Major Order display that picks up a fix within the hour is doing fine — and
+each check spends one of the 60 unauthenticated requests per hour that
+`api.github.com` allows per address.
+
+Writing goes into the **inactive** app slot; the bootloader only switches over
+once a complete, verified image has landed. A download that fails halfway
+leaves the running firmware untouched.
+
+The version is not a constant anyone has to remember to bump — it comes from
+`git describe --tags` at build time (`tools/fw_version.py`), so a binary built
+from tag `v1.2.0` reports exactly `v1.2.0`. CI asserts the two agree before
+publishing, because a release whose binary disagreed with its own tag would
+have every device flash, reboot, still read as out of date, and flash again.
+
+| Situation | Behaviour |
+|---|---|
+| WiFi down at check time | Skipped without consuming the interval, so it checks as soon as the network is back |
+| No release published yet (404) | One serial line, retry next hour |
+| Release has no `firmware.bin` asset | One serial line, retry next hour |
+| Release is not newer, or the tag isn't a version number | Nothing. A tag that doesn't parse as a version is never a reason to overwrite a working image |
+| Image larger than the app slot | Caught *before* downloading, from the asset size in the release JSON, and logged as "the image has outgrown the partition table" |
+| Download or flash fails | Old image keeps running, logged with the reason, retry next hour |
+
+The check itself is a few KB and one TLS handshake, on its own timer in
+`loop()` alongside the API poll — it never delays a poll or a repaint. The
+flash *is* blocking, a couple of minutes on a slow link, so the panel shows
+`Installing firmware update...` for the duration rather than looking frozen.
+
+Watch it over serial (`pio device monitor`) — every decision prints a line
+tagged `[ota]`, and the running version prints at boot as `[boot] firmware …`.
+
+### Cutting a release
+
+Tag and push. CI does the rest.
+
+```bash
+git tag v1.2.0
+git push origin main --tags
+```
+
+`.github/workflows/release.yml` picks the tag up, builds
+`hosyond-esp32-32e`, creates the GitHub Release, and attaches `firmware.bin`.
+Devices are running the new image within the hour.
+
+- Tags must look like `v1.2.0` — the workflow triggers on `v*`, and the
+  device compares `MAJOR.MINOR.PATCH`, so `v1.2` or `latest` will not be
+  picked up.
+- Versions are compared **numerically per component**, so `v1.10.0` correctly
+  beats `v1.9.0`.
+- Don't mark the release a draft or a prerelease. `/releases/latest` skips
+  both, so devices would never see it.
+- The asset has to be named exactly `firmware.bin` (`kOtaAssetName`).
+- Forking? Change `HD2_OTA_REPO` in `platformio.ini`, or your devices will
+  update themselves onto this repo's builds.
+
+A build from a working copy that isn't exactly on a tag stamps itself
+`v1.2.0-4-gabc1234` and will not be overwritten by the `v1.2.0` release it
+sits past — only by something genuinely newer. A build from a checkout with no
+tags at all has no version to compare, and will take the first release it sees.
+
+---
+
 ## Touch recalibration (not used in v1)
 
 Touch is **not read anywhere in this firmware**. The XPT2046 chip select is
@@ -255,6 +350,7 @@ calibration data does not transfer between rotations.
 |---|---|
 | `src/main.cpp` | Boot, WiFi, NTP, poll scheduling, backoff, staleness |
 | `src/hd2_api.{h,cpp}` | HTTPS + JSON only. Knows nothing about drawing. |
+| `src/hd2_ota.{h,cpp}` | Release check + self-flash. See [Firmware updates](#firmware-updates). |
 | `src/hud_renderer.{h,cpp}` | Drawing only. Knows nothing about HTTP. |
 | `src/hd2_model.h` | Plain structs passed between the two |
 | `src/config.h` | Tunables, palette, layout constants |
@@ -417,6 +513,15 @@ name's background fill painted over it. If you change anything in
   hobby device and no credentials are transmitted, so the exposure is a
   man-in-the-middle feeding you false Major Order data. To harden it, pin the
   API's root CA with `setCACert()` and add a plan to rotate it before expiry.
+- **The same applies to the OTA path, where it matters more.** The releases
+  API and the firmware download are fetched over unvalidated TLS, so anyone
+  able to intercept the connection could serve an arbitrary image and the
+  device would flash it. The bar is a man-in-the-middle on the device's own
+  network or upstream of it — the same bar as the API data above, but the
+  consequence is arbitrary code rather than a wrong percentage on a screen.
+  The fix, if that threat model ever applies, is to pin GitHub's root CA and
+  to sign the image and verify the signature before `Update.end()` — the
+  transport check alone is not what makes an update trustworthy.
 - WiFi credentials sit unencrypted in NVS, which is standard for ESP32
   projects and readable by anyone with physical access and a USB cable.
 - The captive portal password (`helldive`) is a compile-time constant and is
@@ -426,8 +531,11 @@ name's background fill painted over it. If you change anything in
 
 ## Not implemented (deliberately out of scope)
 
-Touch interaction and multiple screens · battery management · OTA updates ·
-enclosure design.
+Touch interaction and multiple screens · battery management · enclosure
+design.
+
+(OTA updates *were* on this list. They are now implemented — see
+[Firmware updates](#firmware-updates).)
 
 ---
 

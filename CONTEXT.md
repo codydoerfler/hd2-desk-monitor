@@ -133,6 +133,11 @@ writing, the most recent work was a SEAF/skull rebrand:
 - Verify builds with `python3 -m platformio run` before considering a
   change done. Watch RAM/flash usage in the build output (device has no
   PSRAM, headroom is limited).
+- Flash headroom is now genuinely tight: OTA needs two app slots, so
+  `min_spiffs.csv` caps the image at 1.875 MiB and the build sits at ~95% of
+  that (~90KB spare). Compiled-in art is what fills it. If a change overflows
+  the slot, the fix is a custom partition CSV growing **both** app slots
+  equally — not reverting to `huge_app.csv`, which would remove OTA.
 - Regenerate and visually check `preview_*.png` via `tools/preview.sh` for
   any change touching `hud_renderer.cpp`, `hud_icons.h`, or
   `hud_header_art.h`, before saying a visual change is complete.
