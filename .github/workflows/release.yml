@@ -1,0 +1,96 @@
+# ---------------------------------------------------------------------------
+#  Cuts a firmware release.
+#
+#  Push a tag like v1.2.0 and this builds the board image and publishes it as
+#  firmware.bin on a GitHub Release for that tag. Devices in the field pick it
+#  up from there within the hour — see src/hd2_ota.h.
+#
+#  Because the output of this job is flashed unattended onto hardware, the
+#  release step deliberately uses the preinstalled `gh` CLI rather than a
+#  third-party action: nothing outside GitHub's own tooling sits between the
+#  build and the binary devices will run.
+# ---------------------------------------------------------------------------
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload its asset
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tools/fw_version.py stamps the binary from `git describe --tags`,
+          # and checkout's default shallow fetch brings no tags — without this
+          # every release would ship claiming to be version 0.0.0 and no device
+          # would ever accept it.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # The xtensa toolchain is a few hundred MB and the same for every run.
+      # Keyed on platformio.ini because that is where the platform version and
+      # library pins live.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      # OTA compares the release tag against the version compiled into the
+      # binary, so if these two ever disagree the update would apply, reboot,
+      # still look out of date, and apply again on the next check. They are
+      # derived from the same tag and cannot normally differ — this asserts it
+      # anyway, because the failure is a reboot loop across every device in the
+      # field and the check costs nothing.
+      - name: Verify the build will stamp the release tag
+        run: |
+          stamped="$(git describe --tags --dirty --always)"
+          echo "tag=${GITHUB_REF_NAME}  stamped=${stamped}"
+          if [ "$stamped" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::firmware would be stamped '${stamped}' but the tag is '${GITHUB_REF_NAME}'"
+            exit 1
+          fi
+
+      - name: Build
+        run: pio run -e hosyond-esp32-32e
+
+      # The asset name is a contract with the device: kOtaAssetName in
+      # src/hd2_ota.h looks for exactly this, and a release carrying anything
+      # else is ignored.
+      - name: Stage firmware.bin
+        run: cp .pio/build/hosyond-esp32-32e/firmware.bin firmware.bin
+
+      # `gh release create` publishes immediately and not as a prerelease,
+      # which matters: the device reads /releases/latest, and that endpoint
+      # skips drafts and prereleases entirely.
+      #
+      # Uploading as part of creation keeps the window in which the release
+      # exists without a binary down to nothing. A device that lands in that
+      # window anyway logs "no firmware.bin asset" and retries next hour.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" firmware.bin --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" firmware.bin \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
