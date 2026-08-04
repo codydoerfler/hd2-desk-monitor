@@ -316,6 +316,10 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println(F("\n=== HD2 Major Order Monitor ==="));
+  // Stamped from `git describe` by tools/fw_version.py. Deliberately not
+  // guarded by an #ifndef: a build that somehow loses the flag should fail to
+  // compile rather than quietly ship an image that lies about its version.
+  Serial.printf("[boot] firmware %s\n", HD2_FW_VERSION);
 
   hud.begin();
   hud.showBoot("Connecting to WiFi...");
