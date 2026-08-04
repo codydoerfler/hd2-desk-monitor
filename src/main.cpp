@@ -17,10 +17,12 @@
 
 #include "config.h"
 #include "hd2_api.h"
+#include "hd2_ota.h"
 #include "hud_renderer.h"
 
 static HUDRenderer hud;
 static HD2Api api;
+static HD2Ota ota;
 static HudModel model;
 static Preferences prefs;
 
@@ -383,6 +385,18 @@ void setup() {
   hud.showBoot("Contacting High Command...");
   hud.invalidate();
 
+  // Downloading and flashing an image takes minutes and paints over the HUD,
+  // which from the desk is indistinguishable from a crash unless the screen
+  // says otherwise. Invalidating right here rather than after the update
+  // covers the failure path too: if the flash fails the loop keeps running
+  // with the notice still on the panel, and the renderer would otherwise see
+  // an unchanged model and leave it there.
+  ota.onUpdateStarting([](const char *message) {
+    hud.showBoot(message);
+    hud.invalidate();
+  });
+  ota.begin();
+
   pollDueMs = millis();  // poll immediately
 }
 
@@ -399,6 +413,12 @@ void loop() {
   }
 
   if ((int32_t)(nowMs - pollDueMs) >= 0) poll();
+
+  // Own timer, an hour apart, and a no-op on every iteration but those. It is
+  // deliberately after the poll: the two share the device's one TLS connection
+  // budget, and on the rare tick where both are due, data on screen matters
+  // more than firmware freshness. A successful update never returns from here.
+  ota.tick(model.wifiUp);
 
   const time_t nowUtc = time(nullptr);
 
