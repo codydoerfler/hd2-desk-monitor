@@ -147,26 +147,32 @@ static HudModel sceneIdle() {   // polled fine, but there is no Major Order
 }
 
 // No Major Order, but the campaigns feed found a live fight. This is what the
-// idle screen is replaced by whenever that lookup succeeds.
+// idle screen is replaced by whenever that lookup succeeds. Only campaigns[0]
+// is populated here — rendering campaigns[1..4] as additional preview scenes
+// is out of scope; this exercises the single-campaign case (the pip row's
+// `count > 1` gate off), which is what a real campaignCount == 1 poll draws.
 static HudModel sceneCampaign() {
   HudModel m = sceneIdle();
-  m.campaign.valid = true;
-  m.campaign.index = 64;
-  m.campaign.name = "GEMMA";
-  m.campaign.sector = "Ursa";
-  m.campaign.owner = "Terminids";
-  m.campaign.biome = "Jungle";
-  m.campaign.maxHealth = 1000000;
-  m.campaign.health = 994405;      // 0.5595% liberated
-  m.campaign.liberation = 0.5595f;
-  m.campaign.playerCount = 4001;
-  m.campaign.regenPerSecond = 2.78f;
-  m.campaign.observedAt = 1785700000;
+  m.campaignCount = 1;
+  PlanetInfo &p = m.campaigns[0];
+  p.valid = true;
+  p.index = 64;
+  p.name = "GEMMA";
+  p.sector = "Ursa";
+  p.owner = "Terminids";
+  p.biome = "Jungle";
+  p.maxHealth = 1000000;
+  p.health = 994405;      // 0.5595% liberated
+  p.liberation = 0.5595f;
+  p.playerCount = 4001;
+  p.regenPerSecond = 2.78f;
+  p.observedAt = 1785700000;
   // A previous sample an hour back, so the bar can quote a real %/h.
-  m.campaignHistory.valid = true;
-  m.campaignHistory.planetIndex = 64;
-  m.campaignHistory.at = 1785700000 - 3600;
-  m.campaignHistory.libPct = 0.5595f - 1.592f;
+  RateSample &h = m.campaignHistory[0];
+  h.valid = true;
+  h.planetIndex = 64;
+  h.at = 1785700000 - 3600;
+  h.libPct = 0.5595f - 1.592f;
   return m;
 }
 

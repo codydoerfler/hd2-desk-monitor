@@ -8,9 +8,9 @@
 //    * The frame + static chrome are painted once.
 //    * A content signature is derived from the model; when it changes, the
 //      body is fully repainted. Real data only moves every 5 minutes.
-//    * The Major Order card carries a second signature, because an order with
-//      several targets cycles through them every few seconds and that must not
-//      drag the whole screen through a repaint each time.
+//    * The Major Order card and the campaign card each carry their own
+//      signature, because the carousel (MO task cards, then campaign cards)
+//      repaints just the active card on each advance, not the whole screen.
 //    * Everything that ticks on its own — the two clocks in the card's
 //      objective bar, the WiFi dot, the "last synced" line — is repainted
 //      through small off-screen sprites, which keeps it flicker-free without
@@ -54,15 +54,18 @@ class HUDRenderer {
   // (drawFooter, which positions it independently) but kept for symmetry
   // with the row-packing helpers elsewhere in this file.
   int16_t drawLibcon(int16_t x, int16_t y, int16_t h, int8_t tier);
-  // The plain "SUPER EARTH" strip, used by every screen that is not showing a
-  // Major Order.
-  // `title` names the screen; empty keeps the default SUPER EARTH strip.
-  void drawStatusHeader(const String &title = String());
+  // The header row every screen shares: the objective type, the LIBCON chip
+  // beside it, the carousel pips, and the link state. `title` names the
+  // screen; empty keeps the default SUPER EARTH strip. `tier`/`pages`/`page`
+  // are skipped when zero, which is what the boot and setup screens want.
+  void drawStatusHeader(const String &title = String(), int8_t tier = 0,
+                        uint8_t pages = 0, uint8_t page = 0);
   void drawBody(const HudModel &m, time_t nowUtc);
   void drawIdleBody(const HudModel &m);
-  // Stands in for the idle screen whenever a live campaign was found: the
-  // busiest planet in the galaxy, drawn as a liberation readout.
-  void drawCampaignBody(const HudModel &m);
+  // One campaign card, `p`/`h` resolved by the caller from m.campaigns[]/
+  // m.campaignHistory[] at whichever slot the carousel is on. Also what the
+  // idle screen falls back to showing when there is no Major Order.
+  void drawCampaignBody(const HudModel &m, const PlanetInfo &p, const RateSample &h);
   void drawWifi(bool up);
   void drawFooter(const HudModel &m, time_t nowUtc);
 
@@ -71,33 +74,40 @@ class HUDRenderer {
   // moves and when the carousel advances — because almost every row of it is
   // target-specific.
   void drawCard(const HudModel &m);
-  void drawObjectiveBar(const HudModel &m, const OrderTask &t, uint16_t accent);
-  // A biome photograph scaled into an arbitrary rect. Shares drawWash()'s
-  // scaler; see tools/gen_biomes.py for why the plates are stored at half size.
+  // A biome photograph scaled into an arbitrary rect. `scrimW` darkens the
+  // plate from its left edge inward so overlaid text stays legible; 0 leaves
+  // the artwork untouched. See tools/gen_biomes.py for why the plates are
+  // stored at half size.
   void drawBiome(const uint16_t *src, int16_t sw, int16_t sh, int16_t dx,
-                 int16_t dy, int16_t dw, int16_t dh);
-  // The Earth/gold-sweep wash behind the objective bar. drawWash() scales the
-  // generated art onto any destination rect; drawObjWash() is the objective
-  // bar's own, and takes the sub-rect to repaint.
-  void drawWash(int16_t sx, int16_t sy, int16_t sw, int16_t sh,
-                int16_t dx, int16_t dy, int16_t dw, int16_t dh);
-  void drawObjWash(int16_t sx, int16_t sy, int16_t sw, int16_t sh);
-  void washText(int16_t x, int16_t y, int16_t w, int16_t h, const GFXfont *font,
-                uint16_t fg, uint8_t datum, const String &s);
-  void drawIdentity(const OrderTask &t, uint16_t accent);
-  void drawAlertRibbon(const OrderTask &t, uint16_t accent);
-  // The biome band. Also carries the order's own title, which the objective bar
-  // above it no longer has room for.
-  void drawScene(const HudModel &m, const OrderTask &t, uint16_t accent);
-  void drawProgress(const HudModel &m, const OrderTask &t, uint16_t accent);
-  void drawVerdict(const HudModel &m, const OrderTask &t);
-  // The two clocks set into the objective bar: the defence's own deadline and
-  // the order's expiry, on the gold flag. Both tick every second, so they own
-  // their slots and repaint independently of the rest of the card.
+                 int16_t dy, int16_t dw, int16_t dh, int16_t scrimW = 0,
+                 uint8_t scrimMax = 0);
+  // The art band: biome plate, the planet's name/sector/headline stat set over
+  // it, and the faction mark. Shared by both card types.
+  void drawArtBand(const PlanetInfo &p, int16_t h, const String &headline,
+                   uint16_t headlineColor, const String &orderTitle = String());
+  // Text straight onto whatever is already drawn, with no background fill —
+  // for the identity set over the biome plate.
+  void drawOverText(int16_t x, int16_t y, int16_t h, const GFXfont *font, uint16_t fg,
+                    const String &s);
+  // The faction insignia alone, on a dark disc, top-right of the art band.
+  void drawFactionMark(const String &faction);
+  // A progress track with its caption row: what it measures on the left, the
+  // value and rate on the right.
+  void drawBarRow(int16_t capY, int16_t barY, int16_t barH, const String &label,
+                  const String &readout, uint16_t readoutColor, float pct,
+                  uint16_t fill);
+  // An empty track carrying a centred caption, for an objective with no
+  // percentage to show at all.
+  void drawIdleTrack(int16_t capY, int16_t barY, int16_t barH, const String &label);
+  // The four-value strip. `accent` tints the enemy-regen column.
+  void drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRate, float rate,
+                 uint16_t accent);
+  // The order's countdown and title, on their own plate bottom-right of the
+  // art. The clock ticks every second, so it repaints independently.
   void drawCardClocks(const HudModel &m, time_t nowUtc);
-  // Advances the carousel index when its dwell time is up. Cheap; called every
-  // update().
-  void updateTargetCycle(const HudModel &m);
+  // Advances the unified carousel index (MO task cards, then campaign cards)
+  // when its dwell time is up. Cheap; called every update().
+  void updateCarousel(const HudModel &m);
 
   // --- primitives ---
   // Paints `s` into an off-screen sprite covering the box, then blits it.
@@ -119,18 +129,12 @@ class HUDRenderer {
   // the measured %-per-hour beside it. `rate` is only drawn when `haveRate`;
   // without it the column reads "--", because the API publishes no rate and a
   // single poll cannot produce one.
-  void drawRateBar(int16_t y, float pct, uint16_t fill, bool haveRate, float rate);
-  // An empty track carrying a centred caption, for an objective that has no
-  // percentage to show at all.
-  void drawIdleBar(int16_t y, const String &label, uint16_t color);
+  // The bare track: border, fill, and the chevron cap riding its leading edge.
+  void drawTrack(int16_t y, int16_t h, float pct, uint16_t fill);
   void drawBadge(const String &faction, int16_t x, int16_t y, int16_t h);
-  // Width the faction badge will occupy, including its icon. drawBadge() and
-  // the identity row's layout both need it, so it lives in one place.
+  // Width the faction badge will occupy, including its icon. Only the WiFi
+  // setup path still needs it, but it stays alongside drawBadge().
   int16_t badgeWidth(const String &faction);
-  // Diagonal hazard hatching, clipped to the given box. Used by the alert
-  // ribbon's end blocks and, at a coarser pitch, by the scene panel.
-  void drawHatch(int16_t x, int16_t y, int16_t w, int16_t h, int16_t pitch,
-                 uint16_t c);
 
   TFT_eSPI _tft;
 
@@ -139,20 +143,22 @@ class HUDRenderer {
   // indicator lives in the card's footer when it did, and on the "SUPER EARTH"
   // strip when it did not, so it has to know.
   bool _cardMode = false;
+  // _cardMode as of the previous update() call, so a carousel advance that
+  // crosses the MO-card/campaign-card boundary (different header/footer
+  // geometry) is detected even when the underlying data (contentSignature)
+  // didn't change — only which page is being looked at did.
+  bool _lastCardMode = false;
   String _contentSig;  // last-painted body signature
   String _targetSig;   // last-painted card signature
+  String _campaignSig; // last-painted campaign-card signature
   String _clockSig;    // last-painted pair of card clocks
   String _footerSig;
   int8_t _wifiSig = -1;  // -1 = never drawn, 0 = down, 1 = up
 
-  // Where drawCardClocks() has to paint. Set by drawObjectiveBar(), which is
-  // what measures the gold flag against its own text.
-  int16_t _flagX = 0, _flagW = 0;
-  int16_t _victoryX = 0, _victoryW = 0;
-  // Carousel over the order's targets. An order can name three planets and
-  // there is no room to show three of these cards at a legible size, so they
-  // take turns. Index into MajorOrder::tasks, plus the millis() stamp of the
-  // last switch.
-  uint8_t _targetIdx = 0;
-  uint32_t _targetSwitchMs = 0;
+  // Unified carousel: MO task cards first (if an order is active), then
+  // campaign cards. Index into that combined sequence — see
+  // updateCarousel()/pageCount() in hud_renderer.cpp for how it's split back
+  // out — plus the millis() stamp of the last advance.
+  uint8_t _pageIdx = 0;
+  uint32_t _pageSwitchMs = 0;
 };

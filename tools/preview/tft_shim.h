@@ -206,6 +206,18 @@ class TFT_eSPI {
         if (i * i + j * j <= r * r) drawPixel(cx + i, cy + j, c);
   }
 
+  // Outline only: the annulus between r and r-1, which is close enough to
+  // TFT_eSPI's Bresenham circle at the sizes the HUD draws (the faction
+  // mark's disc) to be measured against it.
+  void drawCircle(int16_t cx, int16_t cy, int16_t r, uint16_t c) {
+    const int32_t outer = (int32_t)r * r, inner = (int32_t)(r - 1) * (r - 1);
+    for (int16_t j = -r; j <= r; ++j)
+      for (int16_t i = -r; i <= r; ++i) {
+        const int32_t d = (int32_t)i * i + (int32_t)j * j;
+        if (d <= outer && d > inner) drawPixel(cx + i, cy + j, c);
+      }
+  }
+
   void fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2,
                     int16_t y2, uint16_t c) {
     const int16_t minx = std::min({x0, x1, x2}), maxx = std::max({x0, x1, x2});

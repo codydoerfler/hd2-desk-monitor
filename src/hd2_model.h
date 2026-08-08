@@ -207,6 +207,9 @@ struct OrderTask {
 // Headroom over the largest order seen in the wild (three targets).
 static const int kMaxOrderTasks = 4;
 
+// Cards shown in the campaign-rotation carousel, top N by player count.
+static const int kMaxCampaigns = 5;
+
 // One Major Order (GET /api/v1/assignments, element 0).
 struct MajorOrder {
   bool valid = false;
@@ -275,13 +278,15 @@ struct HudModel {
   RateSample history[kMaxOrderTasks];
   int32_t historyOrderId = 0;
 
-  // Where the war is when High Command has nothing to say. With no Major
-  // Order the assignments feed is empty and no planet is fetched at all, so
-  // the screen used to fall back to a placeholder; this is the busiest active
-  // campaign, fetched only in that case, so the idle state shows live combat
-  // instead. Its own rate history, since it is not one of the order's tasks.
-  PlanetInfo campaign;
-  RateSample campaignHistory;
+  // The active liberation campaigns, top kMaxCampaigns by player count,
+  // fetched every poll regardless of whether a Major Order is active — they
+  // form the back half of the carousel (MO task cards first, then
+  // these). Also what the idle state falls back to showing when there is no
+  // Major Order at all. Own rate history per slot, matched by planet index,
+  // since these aren't any order's tasks.
+  PlanetInfo campaigns[kMaxCampaigns];
+  RateSample campaignHistory[kMaxCampaigns];
+  uint8_t campaignCount = 0;
 
   bool haveData = false;      // at least one successful poll since boot
   bool stale = false;         // last poll failed / data older than kStaleAfterS
@@ -320,6 +325,6 @@ inline int8_t libconTier(const HudModel &m) {
     }
     return 3;
   }
-  if (m.campaign.valid) return 4;
+  if (m.campaignCount > 0) return 4;
   return 5;
 }

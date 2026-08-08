@@ -2,11 +2,18 @@
 
 A standalone, always-on desk display that shows the current Helldivers 2 Major
 Order: the target planet, its liberation percentage, time remaining, and live
-player counts. The layout is deliberately icon-led rather than wordy — there is
-no briefing paragraph, and the stat tiles carry a glyph where a label would
-otherwise sit. It polls
-[api.helldivers2.dev](https://api.helldivers2.dev) every five minutes and draws
-a Super Earth command-terminal HUD on a 4" 480x320 LCD.
+player counts. It polls [api.helldivers2.dev](https://api.helldivers2.dev)
+every five minutes and draws a Super Earth command-terminal HUD on a 4"
+480x320 LCD.
+
+Each card is built around the target's biome, with the planet's identity set
+over the artwork and the progress tracks beneath it. When an order names
+several planets the card cycles through them; when there is **no** order the
+same card shows the five busiest liberation campaigns in the galaxy instead,
+so the screen is never idle while the war is on.
+
+It also speaks. A new Major Order, or a firmware update landing overnight,
+plays a short clip through the board's speaker — see [Audio](#audio).
 
 Read-only. No touch interaction, no buttons — plug it in, join it to WiFi once,
 and it runs. It updates its own firmware from this repo's GitHub Releases, so
@@ -28,7 +35,8 @@ USB is only needed for the first flash — see
 | Board | Hosyond 4.0" ESP32-32E display module (LCDwiki `E32R40T`) |
 | MCU | ESP32-D0WD-V3, dual core, **no PSRAM**, 520 KB SRAM, 4 MB flash |
 | Panel | ST7796S, 320x480 native, driven at rotation 1 → **480x320 landscape** |
-| Touch | XPT2046 resistive — wired but **unused in v1** |
+| Touch | XPT2046 resistive — wired but **unused** |
+| Audio | GPIO26 (internal DAC) → FM8002E amp, GPIO4 enable (active low), 2-pin JST speaker header |
 | Power | USB-C, 5 V. No battery circuitry. |
 
 ### Pin mapping — ⚠️ verify this first
@@ -98,21 +106,21 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 15.0 % (49,180 bytes static)**, **Flash 95.3 %
-(1,874,249 of 1,966,080 bytes)**.
+Resource usage as built: **RAM 15.2 % (49,868 bytes static)**, **Flash 96.3 %
+(1,893,949 of 1,966,080 bytes)**.
 
 That flash figure is high because the `min_spiffs.csv` partition table splits
 the 4 MB into **two 1.875 MiB app slots**, which is what
 [OTA](#firmware-updates) needs: the running image stays put while an update is
 written into the other slot. The 128 KB SPIFFS partition that comes with the
-table is never mounted — every icon, font and backdrop is compiled into
-`PROGMEM` — so it costs nothing to leave there.
+table is never mounted — every icon, font, backdrop and audio clip is compiled
+into `PROGMEM` — so it costs nothing to leave there.
 
-> ⚠️ **Roughly 90 KB of headroom, and art is what eats it.** The next
-> substantial addition to `hud_biomes.h` or `hud_icons.h` may not fit. When it
-> stops fitting, the fix is a custom partition CSV that shrinks
-> `nvs`/`spiffs`/`coredump` and grows both app slots — **both**, and to the
-> same size, since OTA needs the inactive slot to hold a whole image. The
+> ⚠️ **Roughly 70 KB of headroom, and assets are what eat it.** The next
+> substantial addition to `hud_biomes.h`, `hud_icons.h` or `hud_audio_clip.h`
+> may not fit. When it stops fitting, the fix is a custom partition CSV that
+> shrinks `nvs`/`spiffs`/`coredump` and grows both app slots — **both**, and to
+> the same size, since OTA needs the inactive slot to hold a whole image. The
 > stock `huge_app.csv` is not an option any more; it has only one app slot and
 > would silently take OTA away.
 
@@ -240,6 +248,47 @@ treatment.
 
 ---
 
+## Audio
+
+The board drives a 2-pin JST speaker header from an FM8002E amplifier: GPIO26
+carries the ESP32's **internal DAC** output and GPIO4 is the amp's enable line,
+active low. There is no I2S codec on this part.
+
+The device plays one clip, on the two things worth looking up for:
+
+| Trigger | When |
+|---|---|
+| A new Major Order | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
+| The board updated itself | The running `HD2_FW_VERSION` differs from the one the last boot recorded in NVS (`hd2` / `fwVer`). An OTA reboots into the new image, so the *next* boot is the only moment this is detectable. A first-ever boot has nothing stored and stays silent. |
+
+The clip is 8-bit unsigned PCM at 8 kHz mono, compiled into `PROGMEM` as
+`src/hud_audio_clip.h` and played by `audio::playPcm8()`. 8 kHz is telephone
+bandwidth — the lowest rate that still carries a shouted line — and at one
+byte per sample it costs 8 KB per second, which is the whole reason the clip
+is short. Regenerate it with:
+
+```bash
+python3 tools/gen_audio_clip.py            # rewrite src/hud_audio_clip.h
+python3 tools/gen_audio_clip.py --preview  # ...and dump an ASCII waveform
+```
+
+The generator decodes `tools/assets/hellpods_source.mp3` with macOS's built-in
+`afconvert`, trims the silence off both ends, normalises (the source peaks at
+about half of full scale), and quantises to 8 bits.
+
+Playback **blocks** for the length of the clip, deliberately: the HUD is a
+near-static screen with nothing to animate, and the poll loop already blocks
+far longer than this on its HTTP burst. A new-order alert is queued and fired
+from `loop()` *after* the repaint that puts the order on screen — an alert
+that finished while the panel still showed the previous card would be telling
+you to look at the wrong thing.
+
+The amplifier is left disabled whenever nothing is playing: it idles audibly
+otherwise, and switching it around each clip is also what keeps the DAC's rest
+voltage from thumping the cone on the way in and out.
+
+---
+
 ## Firmware updates
 
 The device updates itself over the internet from this repo's
@@ -320,25 +369,46 @@ tags at all has no version to compare, and will take the first release it sees.
 
 ---
 
-## Touch recalibration (not used in v1)
+## Cards
 
-Touch is **not read anywhere in this firmware**. The XPT2046 chip select is
-declared (`-D TOUCH_CS=33`) only so the SPI bus is configured consistently and
-the panel doesn't respond to a floating line.
+Both card types stack the same bands, so the carousel does not reflow the
+screen as it advances:
 
-If a future version adds touch, this is the procedure:
+| Band | Contents |
+|---|---|
+| header | objective type, the LIBCON chip, carousel pips, link state |
+| art | the biome plate, with the planet's name, sector and headline stat set over it, the faction mark on a dark disc top-right, and (order cards only) the order's name and a countdown plate |
+| bars | one track for a liberation, two for a defence — each captioned with what it measures, its value and its measured rate |
+| strip | four values: diver share, divers present, the players' push, the enemy's regen |
+| footer | divers present, the order's reward, last sync |
 
-1. Build and flash the TFT_eSPI example
-   `.pio/libdeps/hosyond-esp32-32e/TFT_eSPI/examples/Generic/Touch_calibrate/Touch_calibrate.ino`,
-   or copy its body into a scratch sketch.
-2. Touch each of the four corner arrows as prompted.
-3. The sketch prints a five-element calibration array over serial at 115200.
-4. Store it and pass it to `tft.setTouch(calData)` after `tft.begin()`.
-5. Persist it in NVS (`Preferences`) so it survives reflashing, and add an
-   escape hatch — e.g. hold a touch during boot — to force recalibration.
+The two differ only in how much of that budget the bars need. A defence draws
+two tracks and a liberation one, so the **art absorbs the difference**
+(`artOrderH` 130 vs `artCampH` 150) and the strip lands on the same row either
+way. A liberation objective on an order card uses the campaign card's taller
+bar, centred in the band the two tracks would have filled.
 
-The panel must be calibrated **at the rotation you use** (`setRotation(1)`);
-calibration data does not transfer between rotations.
+The identity sits *on* the artwork rather than above it. A left-side scrim
+(`artScrimW`/`artScrimMax`) darkens the plate under the text, applied while
+each pixel is already being scaled rather than as a second pass. The
+alternative — a flat panel behind the words — wastes the same space the art was
+given.
+
+**The countdown has its own filled plate** at the foot of the art. That is not
+decoration: the clock ticks every second, and text painted straight onto the
+photograph could not be repainted without regenerating the artwork underneath
+it. The plate is two stacked rows (what the clock counts down to, then the
+clock) because the one-line form, `VICTORY IN 5h 41m`, is nearly twice as wide
+and reaches back across the art into the headline beside it.
+
+### Carousel
+
+Pages advance every 7 s (`kCarouselCycleMs` in `src/hud_renderer.cpp`). An
+active Major Order **owns the screen** — its targets are the only pages, and
+the campaigns feed is not even fetched. High Command's orders are the point of
+the device, and rotating away from them to show a planet nobody was told to
+take buries the one thing that matters. With no order, the five busiest
+campaigns become the carousel instead.
 
 ---
 
@@ -352,6 +422,7 @@ calibration data does not transfer between rotations.
 | `src/hd2_api.{h,cpp}` | HTTPS + JSON only. Knows nothing about drawing. |
 | `src/hd2_ota.{h,cpp}` | Release check + self-flash. See [Firmware updates](#firmware-updates). |
 | `src/hud_renderer.{h,cpp}` | Drawing only. Knows nothing about HTTP. |
+| `src/hud_audio.{h,cpp}` | The speaker: amp enable, DAC playback. See [Audio](#audio). |
 | `src/hd2_model.h` | Plain structs passed between the two |
 | `src/config.h` | Tunables, palette, layout constants |
 | `src/hud_fonts.h` | Font aliases (see the warning in that file) |
@@ -365,7 +436,8 @@ Neither includes the other's header.
 |---|---|
 | `GET /api/v1/assignments` | Title, reward, expiration, target planet index (the briefing is still parsed into the model but no longer drawn) |
 | `GET /api/v1/planets/{index}` | Name, sector, current owner, health/maxHealth, player count |
-| `GET /api/v1/war` | Total kills, mission success rate, galaxy-wide player count (fills the tiles on the idle screen) |
+| `GET /api/v1/campaigns` | The five busiest liberation campaigns, **only when there is no Major Order**. Each entry embeds its planet in full, so this is one request rather than a list fetch plus per-planet lookups. |
+| `GET /api/v1/war` | Total kills, mission success rate, galaxy-wide player count (the idle screen's tiles, and the diver-share column on every card) |
 
 Each response is parsed with ArduinoJson v7 through a
 `DeserializationOption::Filter`, so only the handful of fields actually used
@@ -398,7 +470,8 @@ connection) and sprites (~27 KB peak).
 
 | Situation | Behaviour |
 |---|---|
-| No active Major Order (empty array) | Idle screen: the large Super Earth emblem, "NO ACTIVE MAJOR ORDER", and the war totals in the three tiles. Not treated as an error. |
+| No active Major Order (empty array) | The five busiest liberation campaigns take over the carousel. Not treated as an error. |
+| No order *and* no campaigns | Idle screen: the large Super Earth emblem, "NO ACTIVE MAJOR ORDER", and the war totals in the three tiles. |
 | Multiple simultaneous orders | The first is shown. |
 | Planet fetch fails, index unchanged | Previous planet data is reused. |
 | War fetch fails | Previous war stats are kept; the tiles never blank. |
@@ -531,11 +604,15 @@ name's background fill painted over it. If you change anything in
 
 ## Not implemented (deliberately out of scope)
 
-Touch interaction and multiple screens · battery management · enclosure
-design.
+Touch interaction · battery management · enclosure design.
 
-(OTA updates *were* on this list. They are now implemented — see
-[Firmware updates](#firmware-updates).)
+Touch was built once and reverted: the XPT2046 calibration would not hold on
+this panel, so swipe navigation was replaced by the timed carousel described
+under [Cards](#cards). The chip select is still declared so the SPI bus stays
+consistent, and `git log` has the implementation if the panel is ever swapped.
+
+(OTA updates and audio *were* on this list. Both are implemented — see
+[Firmware updates](#firmware-updates) and [Audio](#audio).)
 
 ---
 
@@ -543,15 +620,14 @@ design.
 
 `mockup_35inch.png` is the 1440x960 design reference the original grid came
 from. It is exactly 3× the 480x320 target, so **mockup pixel ÷ 3 = device
-pixel**. If you redesign the HUD, keeping the mockup at 3× makes the conversion
-trivial.
+pixel**.
 
-The current row grid no longer matches that mockup one-for-one — dropping the
-briefing paragraph and the sector/biome subtitle freed roughly 60 px, which
-went into a taller target row, an 18 pt progress-bar label and the 68 px stat
-tiles. `tools/check_layout.py` asserts the rows still stack without colliding,
-so the constants in `namespace layout` are the source of truth now, not the
-mockup.
+The current grid no longer follows it: the cards were rebuilt around the biome
+artwork, with the planet's identity set *over* the plate rather than in rows
+above it, which is what buys the art enough height to read as a photograph.
+`tools/check_layout.py` asserts both card grids stack without colliding and
+that the art band's own inner rows stay inside it, so the constants in
+`namespace layout` are the source of truth, not the mockup.
 
 ## Credits
 

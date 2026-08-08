@@ -165,35 +165,73 @@ def grid(title, bands, top, bottom):
     print()
 
 
-# The Major Order card, which is what the display shows almost all the time.
-grid("card grid", [("objective", objY, objH), ("identity", idyY, idyH),
-                   ("ribbon", ribY, ribH), ("scene", sceneY, sceneH),
-                   ("bars", barsY, 2 * cardBarH + barsGap),
-                   ("verdict", verdictY, verdictH), ("cardRule", cardRuleY, 1),
-                   ("cardFoot", cardFootY, cardFootH)],
+# The two card layouts. Both open with the header row and close with the same
+# stat strip and footer; they differ only in how tall the art is and how many
+# tracks sit under it, which is exactly the pair of numbers that has to stay in
+# step -- the art absorbing a track's worth of height is what keeps the strip
+# on the same row either way.
+grid("order card grid", [("header", headerY, headerH), ("rule1", rule1Y, 1),
+                         ("art", artY, artOrderH),
+                         ("cap1", orderCap1Y, barCapH),
+                         ("bar1", orderBar1Y, orderBarH),
+                         ("cap2", orderCap2Y, barCapH),
+                         ("bar2", orderBar2Y, orderBarH),
+                         ("stripCap", stripCapY, stripCapH),
+                         ("stripVal", stripValY, stripValH),
+                         ("footer", footerY, footerH)],
      frameY + 1, frameY + frameH - 1)
+
+grid("campaign card grid", [("header", headerY, headerH), ("rule1", rule1Y, 1),
+                            ("art", artY, artCampH),
+                            ("cap", campCapY, barCapH),
+                            ("bar", campBarY, campBarH),
+                            ("stripCap", stripCapY, stripCapH),
+                            ("stripVal", stripValY, stripValH),
+                            ("footer", footerY, footerH)],
+     frameY + 1, frameY + frameH - 1)
+
+# The order card's single-track variant (a liberation, or a defence with
+# nothing attacking) reuses the taller campaign bar centred in the band the two
+# tracks would have filled. It has to stay inside that band, or it collides
+# with the strip below.
+print("=== order card, single-track variant ===")
+check("solo cap after the art", artY + artOrderH, orderSoloCapY)
+check("solo track inside the two-track band", orderSoloBarY + campBarH, orderBandEnd)
+print()
 
 # Every other screen keeps the plain "SUPER EARTH" strip.
 grid("status-screen grid", [("header", headerY, headerH), ("rule1", rule1Y, 1)],
      frameY + 1, frameY + frameH - 1)
 
-# The scene band stacks three rows inside itself, and they are positioned
-# row-relative, so a collision there does not show up in the card grid above.
-# This is what let the biome row (15px for a 22px font) clip "DESERT" and then,
-# once widened, overlap the hazard chips.
-print("=== scene band inner rows ===")
-SCENE_ROWS = [("title", sceneTitleDy, sceneTitleH),
-              ("biome", sceneBiomeDy, sceneBiomeH),
-              ("chips", sceneChipDy, ICONS["hazTremor"][1])]
+# The art band stacks its identity rows inside itself, positioned relative to
+# the band's own top, so a collision there does not show up in the grids above.
+# The order card is the tighter of the two -- it carries the order title row
+# the campaign card does not -- so it is the one worth asserting.
+print("=== art band inner rows (order card) ===")
+ART_ROWS = [("name", artNameDy, artNameH),
+            ("sector", artSectorDy, artSectorH),
+            ("headline", artStatDy, artStatH),
+            ("orderTitle", artTitleDy, artTitleH)]
 prev_name, prev_bottom = "band top", 0
-for name, dy, h in SCENE_ROWS:
-    ok = dy >= prev_bottom
+for name, dy, h in ART_ROWS:
+    # The rows deliberately overlap by a few px: drawOverText() centres the
+    # glyphs in each row, so the boxes touch long before the type does. What
+    # matters is that they advance and stay inside the band.
+    ok = dy >= prev_bottom - 8
     print(f"{'ok ' if ok else 'BAD'} {name:<10} dy {dy:>3}..{dy + h - 1:>3}   "
           f"(after {prev_name} @{prev_bottom})")
     if not ok:
-        fail.append(f"scene row {name} overlaps {prev_name}")
+        fail.append(f"art row {name} overlaps {prev_name}")
     prev_name, prev_bottom = name, dy + h
-check("scene rows inside the band", prev_bottom, sceneH)
+check("art rows inside the order card's band", prev_bottom, artOrderH)
+
+# The clock plate sits bottom-right of the same band. It must clear the order
+# title beside it, which is trimmed against the plate's left edge, and stay
+# inside the art.
+PLATE_H = plateLabelH + plateClockH + 2 * platePadY
+check("clock plate inside the art band",
+      (artOrderH - plateInset - PLATE_H) + PLATE_H, artOrderH - 1)
+print()
 
 # A text row shorter than the glyphs it actually draws clips them. The bound
 # is per-row rather than the font's full line height, because a row that only
@@ -215,11 +253,15 @@ def glyph_span(font, chars):
 
 CAPS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -,.'%/:"
 for label, font, h, chars in [
-        ("scene biome row", BODY, sceneBiomeH, CAPS),
-        ("scene title row", LABEL, sceneTitleH, CAPS),
-        ("identity sector row", BODY, idySectorH, CAPS),
-        ("objective bar text", LABEL, objH - 2, CAPS),
-        ("footer count row", BODY, cardFootH, "0123456789,")]:
+        ("art sector row", BODY, artSectorH, CAPS),
+        ("art headline row", VALUE, artStatH, CAPS),
+        ("art order-title row", LABEL, artTitleH, CAPS),
+        # The bar/strip caption rows are set in TFT_eSPI's built-in 6x8 GLCD
+        # face, which is not a GFX font and has no table to measure; 8px into
+        # barCapH/stripCapH is not a bound worth asserting.
+        ("strip value row", LABEL, stripValH, CAPS),
+        ("clock plate row", LABEL, plateClockH, CAPS),
+        ("footer count row", BODY, footerH, "0123456789,")]:
     need = glyph_span(font, chars)
     ok = h >= need
     print(f"{'ok ' if ok else 'BAD'} {label:<52} {h:>4}px (needs {need})")

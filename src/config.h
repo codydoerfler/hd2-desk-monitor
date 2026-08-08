@@ -30,10 +30,12 @@
 #define HD2_POLL_INTERVAL_S 300  // Major Orders change on the order of days.
 #endif
 
-// Politeness gap between the calls that make up one poll. A poll is now
+// Politeness gap between the calls that make up one poll. A poll is
 // 1 assignments + one planet per Major Order task (up to kMaxOrderTasks = 4)
 // + 1 war = up to 6 requests, which at the old 600ms spacing would have put 6
-// requests inside a 3.6s window.
+// requests inside a 3.6s window. (The campaigns call only runs in the
+// no-order state, which by definition has no per-task planet fetches, so it
+// never adds to that worst case.)
 //
 // The documented limit is 5 requests / 10 s. At spacing d, a 10s window holds
 // floor(10/d) + 1 requests; d = 2600ms gives 4, leaving a request of headroom.
@@ -80,6 +82,10 @@ static const int16_t kUtcOffsetMinutesMax = 14 * 60;
 // NVS namespace + key the offset is persisted under.
 #define HD2_PREFS_NS "hd2"
 #define HD2_PREFS_TZ_KEY "utcOffMin"
+
+// The firmware version the last boot ran, so a boot that follows an OTA can
+// tell it is new and announce itself. Same namespace as everything else.
+#define HD2_PREFS_FW_KEY "fwVer"
 
 // --------------------------------------------------------------------------
 //  Palette — Super Earth command terminal
@@ -168,41 +174,12 @@ constexpr int16_t rule1Y = 39;
 constexpr int16_t rule2Y = 84;
 constexpr int16_t targetY = 90, targetH = 34;
 constexpr int16_t barY = 132, barH = 36;
-// Campaign screen — what stands in for the idle screen when there is no Major
-// Order but the galaxy is still fighting. Shares the tile row and footer with
-// the idle screen; only the block above the tiles differs, so these all sit
-// between the header rule and tileY below.
-// Identity block, then the biome plate, then the readout. The plate is the
-// only photographic element on any screen, so everything else is pushed clear
-// of it rather than overlaid -- text on a photograph at this size is unreadable
-// however it is treated.
-// kCampNameH must clear FONT_HEADLINE's yAdvance (Anton24px = 37) or the
-// sprite clips the tops of the glyphs.
-constexpr int16_t kCampNameY = 44, kCampNameH = 38;
-constexpr int16_t kCampSectorY = 83, kCampSectorH = 16;
-constexpr int16_t kCampBadgeY = 50, kCampBadgeH = 22;
-constexpr int16_t kCampBiomeY = 104, kCampBiomeH = 84;
-constexpr int16_t kCampBarY = 194;
-constexpr int16_t kCampPctY = 218, kCampPctH = 24;
-// Four-value strip along the bottom, mirroring the companion app's: share of
-// the galaxy's divers, divers here, the players' push, the enemy's regen.
-//
-// Two rows: a caption in the built-in 6x8 GLCD font over the value in
-// FONT_LABEL. The captions are what make the strip readable -- four bare
-// percentages in four colours is a puzzle, not a readout -- and 6x8 is the
-// only face small enough to caption a row this tight, the smallest free font
-// being 9pt.
-//
-// Note this block runs to 278, past rule3Y (260). The campaign screen
-// therefore draws no rule3: it used to, and the line went straight through
-// the digits. See drawCampaignBody().
-constexpr int16_t kCampStripY = 246, kCampStripCapH = 10;
-constexpr int16_t kCampStripValY = 256, kCampStripValH = 22;
-constexpr int16_t kCampStripCols = 4;
-
 constexpr int16_t tileY = 180, tileH = 68, tileGap = 7;
 constexpr int16_t rule3Y = 260;
-constexpr int16_t footerY = 285, footerH = 15;
+// 15px here clipped the baseline off a grouped diver count ("33,400" spans
+// 16px in FreeSans9pt); the row used to be 18 on the card and 15 everywhere
+// else, and unifying the footer inherited the shorter of the two.
+constexpr int16_t footerY = 284, footerH = 18;
 
 // Major Order header bar — the skull badge, the Anton-set order title and the
 // Earth/gold-sweep background wash, in place of the "SUPER EARTH" strip.
@@ -248,78 +225,97 @@ constexpr int16_t badgeMaxW = 175;
 constexpr int16_t statY = 160, statH = 46, statGap = 8;
 
 // --------------------------------------------------------------------------
-//  Major Order card
+//  Cards
 //
-//  The card is one target's worth of the order, and the order's targets take
-//  turns in it. Seven bands, top to bottom, all sharing the content column:
+//  Both card types -- a Major Order target and a liberation campaign -- stack
+//  the same bands, so the carousel does not reflow the screen as it advances:
 //
-//    objective bar   status word, the defence clock, the order's own clock
-//    identity        globe, planet name, sector, who holds it
-//    alert ribbon    the invasion callout, or the objective's plain status
-//    scene           biome, the hazards the API actually reported, the crest
-//    bars            defence progress and the invader's remaining share
-//    verdict         the literal percentage, and winning/losing
-//    footer          divers present, reward, last sync, link state
+//    header    objective type, the LIBCON chip, link state
+//    art       the biome plate, with the planet's identity set over it
+//    bars      progress: one track for a liberation, two for a defence
+//    strip     four values: diver share, divers, the push, the enemy's regen
+//    footer    divers present, reward, last sync
 //
-//  Row rectangles are fixed. A liberate objective has no event, so it draws a
-//  single centred bar and a plain status ribbon, but it does not move anything
-//  — a carousel that reflowed between targets would be unreadable.
+//  The identity sits *on* the artwork rather than above it. That is what buys
+//  the art enough height to read as a photograph instead of a strip, and a
+//  left-side scrim (artScrimW/artScrimMax) darkens the plate under the text so
+//  the two do not fight -- the alternative, a flat panel behind the words,
+//  wastes the same space the art was given.
+//
+//  The two card types differ only in how much of the band budget the bars
+//  need. A defence draws two tracks and a liberation one, so the art absorbs
+//  the difference (artOrderH vs artCampH) and the strip still lands on the
+//  same row either way.
 // --------------------------------------------------------------------------
 constexpr int16_t cardX = padX;       // 20
 constexpr int16_t cardW = contentW;   // 440
 
-constexpr int16_t objY = 14, objH = 30;
-constexpr int16_t idyY = 48, idyH = 54;
-constexpr int16_t ribY = 105, ribH = 22;
-constexpr int16_t sceneY = 130, sceneH = 60;
-constexpr int16_t barsY = 195, cardBarH = 20, barsGap = 3;
-constexpr int16_t verdictY = 242, verdictH = 26;
-constexpr int16_t cardRuleY = 274;
-constexpr int16_t cardFootY = 283, cardFootH = 18;
+// --- art band -------------------------------------------------------------
+constexpr int16_t artY = 46;
+constexpr int16_t artCampH = 150;     // one track below it
+constexpr int16_t artOrderH = 130;    // two tracks below it
+constexpr int16_t artPad = 14;        // text inset from the plate's left edge
+// Rows inside the art, relative to artY. The name is set in Anton24px, whose
+// yAdvance is 37, so artNameH has to clear that or the glyph tops are cut.
+constexpr int16_t artNameDy = 6, artNameH = 38;
+constexpr int16_t artSectorDy = 42, artSectorH = 18;
+constexpr int16_t artStatDy = 62, artStatH = 28;
+// The order's own name, under the headline. Card-side only: a campaign has no
+// order to belong to, and its art is taller by exactly this row's absence.
+constexpr int16_t artTitleDy = 92, artTitleH = 18;
+// The scrim: how far the darkening reaches across the plate, and how dark it
+// is at the left edge (0-255, blended toward black).
+constexpr int16_t artScrimW = 300;
+constexpr uint8_t artScrimMax = 225;
 
-// Objective bar: icon slot, then the status word, then the carousel pips.
-constexpr int16_t objPad = 10;
-constexpr int16_t objIconGap = 8;
-constexpr int16_t objPipGap = 18;
-// The gold flag carrying the order's own expiry, at the bar's right end. `cut`
-// is the horizontal run of its diagonal leading edge.
-constexpr int16_t flagPad = 11;
-constexpr int16_t flagCut = 11;
-// "VICTORY IN:" and its clock, right-aligned against the flag.
-constexpr int16_t victoryGap = 14;
+// Faction mark, top-right on the art: the insignia alone on a dark disc. No
+// label -- the badge's text lived in a row this design no longer has, and the
+// three icons are distinct enough to carry it.
+constexpr int16_t markInset = 10;
+constexpr int16_t markPad = 7;         // disc radius beyond the icon
 
-// Identity row: globe, name/sector block, owner badge.
-constexpr int16_t idyPad = 12;
-constexpr int16_t idyIconGap = 12;
-constexpr int16_t idyNameY = 3, idyNameH = 30;   // row-relative
-constexpr int16_t idySectorY = 33, idySectorH = 17;
+// The order's countdown, bottom-right on the art, on its own filled plate:
+// the clock ticks, and repainting text straight onto the photograph would
+// mean regenerating the artwork under it every second.
+//
+// Two stacked rows — what the clock is counting down to, then the clock —
+// rather than one line reading "VICTORY IN 5h 41m". The one-line form is
+// nearly twice as wide, and a plate that wide reaches back across the art
+// into the headline beside it.
+constexpr int16_t plateInset = 8;
+constexpr int16_t platePadX = 8, platePadY = 4;
+constexpr int16_t plateLabelH = 11, plateClockH = 18;
+constexpr int16_t plateW = 100;
 
-// Alert ribbon: hazard-stripe blocks at each end, callout centred between.
-constexpr int16_t ribStripeW = 46;
-constexpr int16_t ribStripePitch = 7;
-constexpr int16_t ribIconGap = 8;
+// --- progress bars --------------------------------------------------------
+// Each track carries a caption row above it: what the track measures on the
+// left, its value and rate on the right.
+constexpr int16_t barCapH = 12;
+constexpr int16_t campCapY = 202, campBarY = 214, campBarH = 18;
+constexpr int16_t orderCap1Y = 182, orderBar1Y = 194;
+constexpr int16_t orderCap2Y = 210, orderBar2Y = 222;
+constexpr int16_t orderBarH = 12;
+// A liberation objective has one track, not two. Rather than leave the
+// second's band empty it takes the campaign card's taller bar and sits
+// centred in the space both would have used.
+constexpr int16_t orderSoloCapY = 194, orderSoloBarY = 206;
+constexpr int16_t orderBandEnd = orderBar2Y + orderBarH;
 
-// Scene panel: the order's own title, the biome and the reported hazards
-// stacked on the left, the device crest on the right. There is no per-planet
-// artwork in the public API, so the panel is a tinted weave rather than a
-// photograph, and nothing is drawn here that the API did not supply.
-constexpr int16_t scenePad = 12;
-constexpr int16_t chipGap = 9;
-constexpr int16_t sceneTitleDy = 4, sceneTitleH = 17;   // row-relative
-constexpr int16_t sceneBiomeDy = 21, sceneBiomeH = 22;
-constexpr int16_t sceneChipDy = 44;
-constexpr int16_t sceneWeavePitch = 4;
+// --- four-value strip -----------------------------------------------------
+// Share of the galaxy's divers, the head-count here, the players' push, the
+// enemy's regen. Two rows: a caption in the built-in 6x8 GLCD face over the
+// value in FONT_LABEL. The captions are what make it readable -- four bare
+// percentages in four colours is a puzzle -- and 6x8 is the only face small
+// enough for a row this tight, the smallest free font being 9pt.
+constexpr int16_t stripCapY = 242, stripCapH = 10;
+constexpr int16_t stripValY = 252, stripValH = 22;
+constexpr int16_t stripCols = 4;
 
-// Progress bars: track on the left, %/h readout in a fixed column on the
-// right, so the two bars' readouts line up whatever their fills are doing.
-constexpr int16_t rateW = 116;
-constexpr int16_t rateGap = 10;
-constexpr int16_t trackW = cardW - rateW - rateGap;  // 314
-constexpr int16_t rateIconGap = 5;
-
-// Verdict row.
-constexpr int16_t verdictIconGap = 7;
-
+// --- header + footer ------------------------------------------------------
+// Gap between the objective-type word and the LIBCON chip beside it.
+constexpr int16_t libconGapX = 14;
+// Carousel position pips, in the header row opposite the type word.
+constexpr int16_t pipS = 6, pipGap = 5, pipRowGap = 12;
 // Footer: divers on the left, reward centred, sync + link state on the right.
 constexpr int16_t footIconGap = 6;
 constexpr int16_t footDotR = 5;

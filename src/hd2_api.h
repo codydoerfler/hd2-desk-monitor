@@ -21,11 +21,12 @@ class HD2Api {
   bool fetchPlanet(int32_t index, PlanetInfo &out);
   bool fetchWar(WarStats &out);
 
-  // The busiest active campaign — most players on the planet. Only called when
-  // there is no Major Order, to give the idle screen something real to show.
+  // The top `maxCount` active campaigns, busiest planet (most players) first.
+  // Fetched every poll, MO active or not, to feed the campaign-card carousel.
   // The campaigns feed embeds a whole planet object per entry, so this is one
-  // request rather than a list fetch followed by a planet lookup.
-  bool fetchTopCampaign(PlanetInfo &out);
+  // request rather than a list fetch followed by per-planet lookups. `count`
+  // is set to how many were actually found (<= maxCount).
+  bool fetchCampaigns(PlanetInfo out[], int maxCount, int &count);
 
   // Human-readable reason for the most recent failure (for the serial log).
   const String &lastError() const { return _lastError; }
