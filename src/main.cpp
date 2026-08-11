@@ -121,12 +121,25 @@ static void syncClock() {
 //  Audio
 // ---------------------------------------------------------------------------
 
-// The one alert this device makes, for the two things worth looking up for:
-// High Command issuing a new Major Order, and the board having updated itself
-// overnight. Blocking for the length of the clip -- see src/hud_audio.h.
+// The alert, for the two things worth looking up for: High Command issuing a
+// new Major Order, and the board having updated itself overnight. Blocking for
+// the length of the clip -- see src/hud_audio.h.
 static void playAlert() {
   audio::playPcm8(audioclip::hellpods, audioclip::kHellpodsLen,
                   audioclip::kSampleRate);
+}
+
+// Power-on acknowledgement: two short rising tones, ~180ms total.
+//
+// Deliberately NOT the hellpods clip. That clip means "go look at the screen,
+// something happened", and a power-cycle is the one event where nothing has --
+// spending a multi-second alert on every plug-in would both wear out its
+// meaning and be tiresome on a desk unit that gets switched off nightly. A
+// two-note chime is unmistakably a different sound, so an update-detected boot
+// (chime, then hellpods) is still distinguishable by ear from a plain one.
+static void playBootChime() {
+  audio::tone(660, 70);
+  audio::tone(990, 110);
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +402,13 @@ void setup() {
   hud.begin();
   audio::begin();
   hud.showBoot("Connecting to WiFi...");
+
+  // "I'm awake." Every boot, power-cycle included, once the panel is lit and
+  // the amp is configured -- so the sound never arrives before there is
+  // anything on screen to look at. Unconditional, including the first-ever
+  // boot: unlike the update alert below, this is confirmation that power
+  // reached the board, which is exactly what a fresh unit's owner wants.
+  playBootChime();
 
   // Displayed clock times are UTC + this. Persisted in NVS alongside (but
   // separately from) the WiFi credentials, so it survives reflashing and is
