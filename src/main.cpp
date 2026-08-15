@@ -127,19 +127,6 @@ static void playCompiledAlert() {
                   audioclip::kSampleRate);
 }
 
-// Power-on acknowledgement: two short rising tones, ~180ms total.
-//
-// Deliberately NOT the hellpods clip. That clip means "go look at the screen,
-// something happened", and a power-cycle is the one event where nothing has --
-// spending a multi-second alert on every plug-in would both wear out its
-// meaning and be tiresome on a desk unit that gets switched off nightly. A
-// two-note chime is unmistakably a different sound, so an update-detected boot
-// (chime, then hellpods) is still distinguishable by ear from a plain one.
-static void playBootChime() {
-  audio::tone(660, 70);
-  audio::tone(990, 110);
-}
-
 // ---------------------------------------------------------------------------
 //  Event overlays
 // ---------------------------------------------------------------------------
@@ -241,6 +228,18 @@ static storage::Clip overlayClip(OverlayKind k) {
 static void playOverlayAlert(OverlayKind kind) {
   if (kind == kOverlayNone) return;
   if (!storage::playClip(overlayClip(kind))) playCompiledAlert();
+}
+
+// Power-on acknowledgement.
+//
+// Cody's call, overriding the earlier design here: this plays the same clip
+// as a new Major Order announcement (SD card kClipNewOrder, falling back to
+// the compiled hellpods line with no card) rather than a distinct chime, so
+// every plug-in sounds like the event it is standing in for. An
+// update-detected boot below still layers the update alert on top, so that
+// remains audible as a second, distinct sound after this one.
+static void playBootChime() {
+  playOverlayAlert(kOverlayNewOrder);
 }
 
 // ---------------------------------------------------------------------------
