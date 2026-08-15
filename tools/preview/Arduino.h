@@ -66,6 +66,26 @@ class String {
     if (index < _s.size()) _s.erase(index, count);
   }
 
+  // Arduino's substring is [begin, end), clamps `end` to the length, swaps the
+  // two if they arrive backwards, and returns empty for a `begin` past the end
+  // rather than throwing the way std::string::substr would. wrapText() in the
+  // renderer relies on the clamping.
+  String substring(unsigned begin, unsigned end) const {
+    if (begin > end) std::swap(begin, end);
+    if (begin >= _s.size()) return String();
+    if (end > _s.size()) end = (unsigned)_s.size();
+    return String(_s.substr(begin, end - begin));
+  }
+  String substring(unsigned begin) const { return substring(begin, (unsigned)_s.size()); }
+
+  // In place, like Arduino's -- it returns void, not a trimmed copy.
+  void trim() {
+    size_t b = 0, e = _s.size();
+    while (b < e && std::isspace((unsigned char)_s[b])) b++;
+    while (e > b && std::isspace((unsigned char)_s[e - 1])) e--;
+    _s = _s.substr(b, e - b);
+  }
+
   bool startsWith(const String &p) const { return _s.rfind(p._s, 0) == 0; }
   bool endsWith(const String &p) const {
     return _s.size() >= p._s.size() &&

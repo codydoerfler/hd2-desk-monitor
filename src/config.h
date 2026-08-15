@@ -87,6 +87,13 @@ static const int16_t kUtcOffsetMinutesMax = 14 * 60;
 // tell it is new and announce itself. Same namespace as everything else.
 #define HD2_PREFS_FW_KEY "fwVer"
 
+// The touch panel's raw-to-screen mapping, stored as a struct blob (see the
+// Calibration struct in hud_touch.cpp). NVS rather than a compiled-in constant
+// so a panel is calibrated once, by the person holding it, and keeps that
+// across reboots and OTAs -- which is the part the first attempt at touch was
+// missing.
+#define HD2_PREFS_TOUCH_KEY "touchCal"
+
 // --------------------------------------------------------------------------
 //  Palette — Super Earth command terminal
 //  RGB565. Source hex values are in the comments.

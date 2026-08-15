@@ -11,7 +11,7 @@
 #      ./tools/preview.sh defense    # just one
 #
 #  Scenes: boot, defense, invasion, liberation, campaign, count, extraction,
-#          idle, stale.
+#          idle, stale, neworder, success, failure.
 # ---------------------------------------------------------------------------
 set -e
 cd "$(dirname "$0")/.."

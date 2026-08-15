@@ -34,8 +34,26 @@ class HUDRenderer {
   // Paints `m`, repainting only what changed. `nowUtc` drives the clocks.
   void update(const HudModel &m, time_t nowUtc);
 
+  // Steps the carousel by `delta` pages, wrapping, and restarts its dwell
+  // timer. This is what a swipe calls -- see hud_touch.h. The 7s auto-advance
+  // is deliberately left running underneath: touch is an accelerator, not a
+  // replacement, so a board nobody is touching still cycles on its own.
+  void advancePage(const HudModel &m, int8_t delta);
+
+  // Puts the carousel back on its first page with a full dwell ahead of it.
+  // Called when a new-order announcement is dismissed, so the screen it hands
+  // back to is that order's first objective rather than wherever the carousel
+  // happened to be when the announcement interrupted it.
+  void resetCarousel();
+
   // Forces the next update() to repaint everything (e.g. after a status page).
   void invalidate();
+
+  // The panel itself. The XPT2046 touch controller is on the same SPI bus,
+  // behind the same transaction lock, so hud_touch has to drive it through
+  // this instance rather than opening its own -- see hud_touch.h. Nothing else
+  // should reach in here; drawing belongs in this class.
+  TFT_eSPI &panel() { return _tft; }
 
 #ifdef HUD_PREVIEW
   // Preview builds (tools/preview.sh) rasterise the panel to a PNG, so they
@@ -68,6 +86,16 @@ class HUDRenderer {
   void drawCampaignBody(const HudModel &m, const PlanetInfo &p, const RateSample &h);
   void drawWifi(bool up);
   void drawFooter(const HudModel &m, time_t nowUtc);
+  // A full-screen event announcement: the new-order dispatch, or a verdict on
+  // one that has ended. Takes the whole panel — no frame chrome, no carousel,
+  // no clocks — because it is meant to interrupt, and stays up until it is
+  // dismissed. See HudModel::overlay.
+  void drawOverlay(const HudModel &m, time_t nowUtc);
+  // Greedy word wrap in the current font. Fills up to `maxLines` entries of
+  // `out` and returns how many were used; ellipses the last line if the text
+  // did not fit. Only the overlay needs this — every other screen is built
+  // from fields short enough to size by hand.
+  int8_t wrapText(const String &s, int16_t maxW, int8_t maxLines, String *out);
 
   // --- the Major Order card ---
   // One target's card, top to bottom. Repainted as a unit — both when the data
@@ -158,6 +186,7 @@ class HUDRenderer {
   String _campaignSig; // last-painted campaign-card signature
   String _clockSig;    // last-painted pair of card clocks
   String _footerSig;
+  String _overlaySig;    // last-painted overlay; empty when none is up
   int8_t _wifiSig = -1;  // -1 = never drawn, 0 = down, 1 = up
 
   // Unified carousel: MO task cards first (if an order is active), then

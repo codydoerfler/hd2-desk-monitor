@@ -15,10 +15,13 @@ so the screen is never idle while the war is on.
 It also speaks. A new Major Order, or a firmware update landing overnight,
 plays a short clip through the board's speaker — see [Audio](#audio).
 
-Read-only. No touch interaction, no buttons — plug it in, join it to WiFi once,
-and it runs. It updates its own firmware from this repo's GitHub Releases, so
-USB is only needed for the first flash — see
-[Firmware updates](#firmware-updates).
+It announces the big moments full-screen: a new Major Order arriving, and the
+verdict when one ends — see [Event screens](#event-screens).
+
+Swipe the panel to page through the cards by hand; otherwise it cycles on its
+own. Plug it in, join it to WiFi once, and it runs. It updates its own firmware
+from this repo's GitHub Releases, so USB is only needed for the first flash —
+see [Firmware updates](#firmware-updates).
 
 ![HUD preview](docs/preview.png)
 
@@ -35,7 +38,7 @@ USB is only needed for the first flash — see
 | Board | Hosyond 4.0" ESP32-32E display module (LCDwiki `E32R40T`) |
 | MCU | ESP32-D0WD-V3, dual core, **no PSRAM**, 520 KB SRAM, 4 MB flash |
 | Panel | ST7796S, 320x480 native, driven at rotation 1 → **480x320 landscape** |
-| Touch | XPT2046 resistive — wired but **unused** |
+| Touch | XPT2046 resistive, on the panel's SPI bus (CS 33) — swipe to page, tap to dismiss. See [Touch](#touch). |
 | Audio | GPIO26 (internal DAC) → FM8002E amp, GPIO4 enable (active low), 2-pin JST speaker header |
 | Storage | Onboard MicroSD slot on VSPI (SCK 18, MISO 19, MOSI 23, CS 5). Optional — see [SD card](#sd-card). |
 | Power | USB-C, 5 V. No battery circuitry. |
@@ -53,7 +56,7 @@ TFT_eSPI `User_Setup.h`. Nothing in the library folder needs editing.
 -D TFT_DC=2
 -D TFT_RST=-1     ; panel reset tied to the ESP32 EN line
 -D TFT_BL=27
--D TOUCH_CS=33    ; XPT2046, unused in v1
+-D TOUCH_CS=33    ; XPT2046, shares the panel's HSPI bus
 -D USE_HSPI_PORT=1
 ```
 
@@ -107,8 +110,8 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 16.6 % (54,320 bytes static)**, **Flash 95.4 %
-(1,938,141 of 2,031,616 bytes)**.
+Resource usage as built: **RAM 17.3 % (56,704 bytes static)**, **Flash 96.1 %
+(1,952,069 of 2,031,616 bytes)**.
 
 That flash figure is high because the partition table splits the 4 MB into
 **two 1.9375 MiB app slots**, which is what [OTA](#firmware-updates) needs: the
@@ -128,7 +131,7 @@ slot.
 > the OTA fails cleanly if an image will not fit — but the headroom below is
 > only real once the unit has been flashed over USB once.
 
-> ⚠️ **Roughly 95 KB of headroom, and assets are what eat it.** The next
+> ⚠️ **Roughly 78 KB of headroom, and assets are what eat it.** The next
 > substantial addition to `hud_biomes.h`, `hud_icons.h` or `hud_audio_clip.h`
 > may not fit; the failure mode is a link error, not something subtle. New art
 > and audio belong on the SD card now. The stock `huge_app.csv` is not an
@@ -268,8 +271,11 @@ The device plays a clip on the things worth looking up for:
 
 | Trigger | Clip | When |
 |---|---|---|
-| A new Major Order | card, else compiled-in | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
+| A new Major Order | `mo_new.wav`, else compiled-in | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
+| A Major Order succeeded | `mo_success.wav`, else compiled-in | The order left the feed with every task complete — see [Event screens](#event-screens). |
+| A Major Order failed | `mo_failure.wav`, else compiled-in | The order left the feed incomplete, or its deadline passed with tasks outstanding. |
 | The board updated itself | compiled-in | The running `HD2_FW_VERSION` differs from the one the last boot recorded in NVS (`hd2` / `fwVer`). An OTA reboots into the new image, so the *next* boot is the only moment this is detectable. A first-ever boot has nothing stored and stays silent. |
+| Power-up | two-tone chime | Every boot. Deliberately not the alert clip: a power-cycle is the one event where nothing has happened, and spending a multi-second alert on it would wear out the alert's meaning. |
 
 The compiled-in clip is 8-bit unsigned PCM at 8 kHz mono, stored in `PROGMEM` as
 `src/hud_audio_clip.h` and played by `audio::playPcm8()`. 8 kHz is telephone
@@ -288,10 +294,10 @@ about half of full scale), and quantises to 8 bits.
 
 Playback **blocks** for the length of the clip, deliberately: the HUD is a
 near-static screen with nothing to animate, and the poll loop already blocks
-far longer than this on its HTTP burst. A new-order alert is queued and fired
-from `loop()` *after* the repaint that puts the order on screen — an alert
-that finished while the panel still showed the previous card would be telling
-you to look at the wrong thing.
+far longer than this on its HTTP burst. Every event alert is queued and fired
+from `loop()` *after* the repaint that puts its screen up — an alert that
+finished while the panel still showed the previous card would be telling you to
+look at the wrong thing.
 
 The amplifier is left disabled whenever nothing is playing: it idles audibly
 otherwise, and switching it around each clip is also what keeps the DAC's rest
@@ -359,6 +365,105 @@ Files are only read when an event fires. The card is not polled, not written
 to, and not required to be present at boot — it can be inserted later, though
 the mount is attempted once during `setup()`, so the device needs a reboot to
 notice a card added while it was running.
+
+---
+
+## Touch
+
+The XPT2046 shares the panel's HSPI bus, so `src/hud_touch.cpp` borrows
+TFT_eSPI's instance (`HUDRenderer::panel()`) rather than opening its own —
+opening a second one would mean two drivers taking turns on the same three
+pins with nothing arbitrating them.
+
+**Swipe left/right** pages the carousel. **Tap** dismisses an
+[event screen](#event-screens). Nothing else is bound; there are no on-screen
+controls to hit.
+
+### Why this is not `TFT_eSPI::getTouch()`
+
+The library's own touch layer was tried first and produced a panel where
+calibration appeared not to hold: taps landed erratically and swipes barely
+registered. The cause is in `validTouch()`, which requires two successive
+samples to agree within 20 ADC counts:
+
+```cpp
+#define _RAWERR 20 // Deadband error allowed in successive position samples
+```
+
+That is a **stationarity test**, and a moving finger cannot pass it. It is a
+reasonable filter for buttons and a fatal one for gestures: most of a swipe is
+rejected outright, and the readings that do survive are whichever ones happened
+to catch the finger momentarily still — which is why the symptom presents as
+bad calibration rather than as dropped input.
+
+So this module keeps TFT_eSPI for what it does well — bus arbitration and the
+raw ADC conversions, `getTouchRaw()` / `getTouchRawZ()` — and replaces only the
+validation and mapping layer:
+
+- **Pressure gate first.** `getTouchRawZ()` returns `4095 + Z1 - Z2`, which is
+  0 with nothing on the glass. Readings below `kPressureMin` are discarded
+  before anything else looks at them.
+- **Median of five, not a deadband.** Five conversions cost ~250 µs; the median
+  rejects the outliers a resistive panel throws constantly, without ever
+  requiring the finger to hold still.
+- **The burst is bracketed by the pressure gate.** A burst that started under a
+  finger and ended in mid-air reads plausible numbers for its first samples and
+  garbage for the rest, and the median cannot tell — so pressure is re-checked
+  on the way out.
+- **A release has to be quiet for 70 ms.** Mid-drag dropouts are normal;
+  ending the contact on the first missed sample chops one swipe into three.
+
+`SPI_TOUCH_FREQUENCY` was also dropped from 2.5 MHz to **2 MHz**. 2.5 MHz is
+the ceiling derived from the XPT2046's interface timing table, not an
+operating point, and it was being used with no margin on a bus a 40 MHz
+display also drives. Clocking the part at its limit degrades the low bits of
+each conversion, which presents as noisy coordinates rather than as an obvious
+fault — indistinguishable, from the outside, from bad calibration. The cost of
+backing off is a five-sample burst going from ~250 µs to ~310 µs, against a
+15 ms poll interval.
+
+`loop()` runs on a 200 ms beat, which would sample a swipe once. The idle time
+at the bottom of the loop is spent polling the panel instead of sleeping
+through it (`waitWithTouch()`), and a completed gesture cuts that wait short.
+
+### Calibration
+
+Stored in NVS (`hd2` / `touchCal`) as the raw reading at each screen edge, with
+a version stamp and the rotation it was taken at. A stored blob from an older
+firmware or a different rotation is discarded rather than reinterpreted — an
+OTA can move a device between versions with nobody present to notice a panel
+that has quietly started reporting nonsense.
+
+Until it is calibrated the device uses a built-in guess, and says so on the
+serial log. The guess is usable; a wrong one is visible immediately (taps land
+mirrored) rather than subtly.
+
+**To calibrate: hold a finger on the panel while powering the board on.** That
+is the entire escape hatch, and it is deliberately not a menu — the device has
+no buttons, and a touch-driven way into touch calibration is useless on the one
+panel that needs it. `setup()` samples for 1.2 s and needs contact on three
+quarters of those samples, so a hand resting on the screen while plugging in
+the USB cable will not trigger it by accident.
+
+It then dumps 5 s of diagnostics (raw x/y, pressure, the IO36 pen line, and
+where the current mapping puts each reading) before drawing four corner
+targets. Touch each; the mapping is written to NVS and takes effect at once.
+
+Four points, not two: averaging the pair that shares each edge is what takes
+the tilt out of a panel whose axes are a degree or two off the glass. The
+targets are inset 34 px from the corners — a resistive panel is least linear at
+the very edge — and the mapping is extrapolated back out to the real edges,
+without which every tap near an edge is pulled 34 px toward the centre.
+
+A calibration whose four points came back nearly identical is **rejected**. A
+panel reporting that was not touched in four places; it is unwired or stuck,
+and storing that mapping would land every future tap dead centre forever —
+including the tap that would have started a recalibration.
+
+`PEN`/`IRQ` (IO36) is read by the diagnostics but not used to drive anything.
+GPIO34–39 are input-only with no internal pull-ups, so whether that line is
+usable at all depends on an external pull-up being fitted; polling the pressure
+value costs little and does not depend on the board's population options.
 
 ---
 
@@ -483,6 +588,58 @@ the device, and rotating away from them to show a planet nobody was told to
 take buries the one thing that matters. With no order, the five busiest
 campaigns become the carousel instead.
 
+Swiping left or right pages by hand, wrapping at both ends. The 7 s timer keeps
+running underneath and any swipe restarts it: touch is an accelerator, not a
+replacement, so a board nobody is touching still cycles on its own, and a page
+someone just swiped to does not slide away a moment later.
+
+---
+
+## Event screens
+
+Two things get the whole panel rather than a card: a new Major Order arriving,
+and the verdict when one ends. They interrupt the carousel, stay up until they
+are acknowledged, and are the only screens on the device with no chrome.
+
+| | |
+|---|---|
+| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and as much of High Command's briefing as fits in four lines. Raised when the assignment id changes, on the same gate as the new-order alert, so a reboot does not re-announce an order that was already running. Dismissing it hands back to the carousel on that order's *first* objective. |
+| ![success](docs/preview_success.png) | **ORDER COMPLETE** — every task was done at the last observation. The green band is the whole design: from across a room the colour has already said it before any of the words have. |
+| ![failure](docs/preview_failure.png) | **ORDER FAILED** — the order ended incomplete, or its deadline passed with tasks outstanding. The objective count is here because "3 of 4 objectives met" is a materially different evening from "0 of 4". |
+
+**How the verdict is worked out.** The API has no outcome field and no history
+endpoint — an assignment that ends simply stops being listed. So the verdict is
+inferred in `classifyOrderOutcome()` (`src/main.cpp`) from the last state this
+device saw before the order vanished: gone with every task complete is a
+success, gone otherwise is a failure. Two consequences worth knowing:
+
+- **A completed order that is still listed is left alone.** Completion is
+  tested *before* the deadline, so an order finished with an hour to spare is
+  not called a failure the moment its clock runs out. The deadline only judges
+  orders that did not finish.
+- **A dropped connection must never read as a lost war.** This only runs when
+  the poll succeeded; a failed fetch aborts before it, so "no order in the
+  response" always means the API said so.
+
+An outcome is announced once (`verdictAnnouncedFor`). Without that, an expired
+order sitting on the feed would re-fire every poll, and a device left alone
+overnight would come back to a panel that had been shouting at an empty room
+since 2 am.
+
+**Dismissing.** A tap is the intended gesture; any swipe works too, since a
+screen that has taken over the panel refusing a gesture just reads as broken.
+The **non-touch fallback** is a timeout of one poll interval
+(`kOverlayFallbackMs`, so 5 minutes by default): a panel that has stopped
+reading must not be able to strand the HUD on a verdict forever. That is the
+"dismiss on the next poll" behaviour arrived at by the clock rather than by the
+network, so it still holds when the network is what died. The screens say
+`TOUCH TO DISMISS` rather than naming the timer, but nothing is stuck if
+nobody touches it.
+
+If two orders turn over in one poll — one ends and its replacement arrives,
+which is the ordinary case — both screens are shown, in that order, each with
+its own dismissal. The queue is two deep for exactly this.
+
 ---
 
 ## How it works
@@ -497,6 +654,7 @@ campaigns become the carousel instead.
 | `src/hud_renderer.{h,cpp}` | Drawing only. Knows nothing about HTTP. |
 | `src/hud_audio.{h,cpp}` | The speaker: amp enable, DAC playback. See [Audio](#audio). |
 | `src/hud_storage.{h,cpp}` | The MicroSD slot: mount, WAV parse, streamed playback. See [SD card](#sd-card). |
+| `src/hud_touch.{h,cpp}` | The XPT2046: filtering, calibration, tap/swipe. See [Touch](#touch). |
 | `src/hd2_model.h` | Plain structs passed between the two |
 | `src/config.h` | Tunables, palette, layout constants |
 | `src/hud_fonts.h` | Font aliases (see the warning in that file) |
@@ -508,7 +666,7 @@ Neither includes the other's header.
 
 | Endpoint | Used for |
 |---|---|
-| `GET /api/v1/assignments` | Title, reward, expiration, target planet index (the briefing is still parsed into the model but no longer drawn) |
+| `GET /api/v1/assignments` | Title, reward, expiration, target planet index, and the briefing (drawn on the new-order screen; the cards have no room for it) |
 | `GET /api/v1/planets/{index}` | Name, sector, current owner, health/maxHealth, player count |
 | `GET /api/v1/campaigns` | The five busiest liberation campaigns, **only when there is no Major Order**. Each entry embeds its planet in full, so this is one request rather than a list fetch plus per-planet lookups. |
 | `GET /api/v1/war` | Total kills, mission success rate, galaxy-wide player count (the idle screen's tiles, and the diver-share column on every card) |
@@ -678,15 +836,16 @@ name's background fill painted over it. If you change anything in
 
 ## Not implemented (deliberately out of scope)
 
-Touch interaction · battery management · enclosure design.
+Battery management · enclosure design.
 
-Touch was built once and reverted: the XPT2046 calibration would not hold on
-this panel, so swipe navigation was replaced by the timed carousel described
-under [Cards](#cards). The chip select is still declared so the SPI bus stays
-consistent, and `git log` has the implementation if the panel is ever swapped.
-
-(OTA updates and audio *were* on this list. Both are implemented — see
-[Firmware updates](#firmware-updates) and [Audio](#audio).)
+(OTA updates, audio and touch *were* all on this list. All three are
+implemented — see [Firmware updates](#firmware-updates), [Audio](#audio) and
+[Touch](#touch). Touch had been tried once before and reverted, on the
+conclusion that the XPT2046 calibration would not hold on this panel; the real
+cause was TFT_eSPI's own sample filter, which is [what the current
+implementation replaces](#why-this-is-not-tft_espigettouch). That earlier
+attempt was never committed, so — contrary to what this file used to say —
+`git log` does **not** have it.)
 
 ---
 

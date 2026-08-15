@@ -230,6 +230,59 @@ static HudModel sceneStale() {  // link down, last good data still on screen
   return m;
 }
 
+// --- event overlays --------------------------------------------------------
+//
+// The three full-screen announcements. They ignore everything in the model
+// except `overlay` and `overlaySubject`, so the underlying scene is only here
+// to prove that: whatever is behind them, none of it should reach the panel.
+//
+// Briefing text is a real one in shape and length -- High Command writes long,
+// and a preview using a short placeholder would not exercise the wrap or show
+// where the four-line cap actually bites.
+static MajorOrder overlaySubject() {
+  MajorOrder o;
+  o.valid = true;
+  o.id = 3979642198;
+  o.title = "OPERATION SWIFT DISASSEMBLY";
+  o.briefing =
+      "Automaton forces have massed in the Umlaut sector and are staging for a "
+      "push on the Cyberstan corridor. High Command requires the immediate "
+      "eradication of one billion two hundred and fifty million Terminids to "
+      "deny them the flank. Deploy at once, Helldivers.";
+  o.rewardAmount = 45;
+  o.expiration = kNow + 3 * 24 * 3600;
+  o.taskCount = 4;
+  for (int i = 0; i < 4; i++) o.tasks[i].valid = true;
+  return o;
+}
+
+static HudModel sceneNewOrder() {
+  HudModel m = sceneDefense();
+  m.overlay = kOverlayNewOrder;
+  m.overlaySubject = overlaySubject();
+  return m;
+}
+
+static HudModel sceneSuccess() {
+  HudModel m = sceneDefense();
+  m.overlay = kOverlaySuccess;
+  m.overlaySubject = overlaySubject();
+  for (int i = 0; i < m.overlaySubject.taskCount; i++)
+    m.overlaySubject.tasks[i].complete = true;
+  return m;
+}
+
+// A near miss rather than a rout: three of four met is the case where the
+// objective count is worth printing at all, and the one most likely to be
+// misread if the layout crowds it.
+static HudModel sceneFailure() {
+  HudModel m = sceneDefense();
+  m.overlay = kOverlayFailure;
+  m.overlaySubject = overlaySubject();
+  for (int i = 0; i < 3; i++) m.overlaySubject.tasks[i].complete = true;
+  return m;
+}
+
 int main(int argc, char **argv) {
   const int scale = 2;
   HUDRenderer hud;
@@ -242,6 +295,8 @@ int main(int argc, char **argv) {
       {"campaign", sceneCampaign},
       {"count", sceneCount},       {"extraction", sceneExtraction},
       {"stale", sceneStale},
+      {"neworder", sceneNewOrder}, {"success", sceneSuccess},
+      {"failure", sceneFailure},
   };
 
   auto shoot = [&](const String &name, const HudModel &m) {

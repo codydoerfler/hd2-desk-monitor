@@ -1348,7 +1348,224 @@ void HUDRenderer::updateCarousel(const HudModel &m) {
   }
 }
 
+void HUDRenderer::advancePage(const HudModel &m, int8_t delta) {
+  const uint8_t count = pageCount(m);
+  if (count == 0) return;
+
+  // Wrap in both directions. `delta` is +/-1 from a swipe, but the modulo is
+  // written to survive any value rather than assuming that.
+  int16_t next = (int16_t)_pageIdx + delta;
+  while (next < 0) next += count;
+  _pageIdx = (uint8_t)(next % count);
+
+  // Restarting the dwell is the whole point of doing this here rather than
+  // poking _pageIdx from outside: a manual advance that still expired on the
+  // old schedule would page again a moment later, undoing the thing that was
+  // just asked for. Cody's explicit decision is that the timer stays as a
+  // fallback -- so it keeps running, it just starts counting again from now.
+  _pageSwitchMs = millis();
+}
+
+void HUDRenderer::resetCarousel() {
+  _pageIdx = 0;
+  _pageSwitchMs = millis();
+}
+
+// ---------------------------------------------------------------------------
+//  Event overlays
+// ---------------------------------------------------------------------------
+
+// Greedy word wrap into `out`, at most `maxLines` lines of `maxW` pixels in
+// whatever font is currently selected. Returns how many lines were used.
+//
+// A word longer than the line is hard-broken rather than dropped: order titles
+// are written by a game studio, not by this renderer, and one unbroken
+// 40-character string should not blank a screen. The last line is ellipsed if
+// there is more text than room, so a truncated briefing looks truncated rather
+// than finished.
+int8_t HUDRenderer::wrapText(const String &s, int16_t maxW, int8_t maxLines,
+                             String *out) {
+  int8_t used = 0;
+  int idx = 0;
+  const int len = s.length();
+
+  while (idx < len && used < maxLines) {
+    while (idx < len && s[idx] == ' ') idx++;  // eat run-on spaces
+    if (idx >= len) break;
+
+    int fit = idx;      // one past the last character known to fit
+    int lastSpace = -1; // last space seen inside that run
+    while (fit < len) {
+      if (s[fit] == '\n') break;
+      const String probe = s.substring(idx, fit + 1);
+      if (_tft.textWidth(probe.c_str()) > maxW) break;
+      if (s[fit] == ' ') lastSpace = fit;
+      fit++;
+    }
+
+    int end = fit;
+    if (fit < len && s[fit] != '\n' && lastSpace > idx) end = lastSpace;
+    if (end <= idx) end = idx + 1;  // hard break: nothing fit, take one char
+
+    out[used] = s.substring(idx, end);
+    out[used].trim();
+    used++;
+    idx = end;
+    if (idx < len && s[idx] == '\n') idx++;
+  }
+
+  // Anything left over is signalled on the final line rather than silently
+  // dropped.
+  if (idx < len && used > 0) {
+    String &tail = out[used - 1];
+    while (tail.length() > 1 &&
+           _tft.textWidth((tail + "...").c_str()) > maxW)
+      tail.remove(tail.length() - 1);
+    tail += "...";
+  }
+  return used;
+}
+
+void HUDRenderer::drawOverlay(const HudModel &m, time_t nowUtc) {
+  (void)nowUtc;
+  const MajorOrder &o = m.overlaySubject;
+  const bool verdict = (m.overlay == kOverlaySuccess || m.overlay == kOverlayFailure);
+  const uint16_t accent = m.overlay == kOverlaySuccess  ? theme::green
+                          : m.overlay == kOverlayFailure ? theme::red
+                                                         : theme::gold;
+
+  _tft.fillScreen(theme::bg);
+
+  // A verdict gets a band of its own colour across the full width; an
+  // announcement gets the HUD's ordinary gold frame. That difference is the
+  // fastest thing to read from across a room -- the colour says what happened
+  // before any of the words have been.
+  const int16_t bandY = layout::frameY + 26;
+  const int16_t bandH = verdict ? 76 : 54;
+  if (verdict) {
+    _tft.fillRect(0, bandY, layout::screenW, bandH, accent);
+  } else {
+    _tft.fillRect(0, bandY, layout::screenW, bandH, theme::panel);
+    _tft.drawFastHLine(0, bandY, layout::screenW, theme::goldDim);
+    _tft.drawFastHLine(0, bandY + bandH - 1, layout::screenW, theme::goldDim);
+  }
+
+  drawFrame();
+
+  // --- the banner word -----------------------------------------------------
+  const char *word = m.overlay == kOverlaySuccess    ? "ORDER COMPLETE"
+                     : m.overlay == kOverlayFailure  ? "ORDER FAILED"
+                                                     : "NEW MAJOR ORDER";
+  _tft.setFreeFont(verdict ? FONT_HEADLINE : FONT_HEADLINE_SM);
+  _tft.setTextDatum(MC_DATUM);
+  // Ink on the band, not a tint of it: a verdict's band is a saturated fill
+  // and mid-tone text on it is the one thing that would be unreadable at a
+  // glance, which is the entire job of this screen.
+  _tft.setTextColor(verdict ? theme::bg : accent, verdict ? accent : theme::panel);
+  _tft.drawString(word, layout::screenW / 2, bandY + bandH / 2);
+
+  // --- the text block ------------------------------------------------------
+  //
+  // Both halves are wrapped before either is drawn, so the whole block can be
+  // centred in the space the band and the dismiss line leave between them.
+  // Top-aligning it is what the layout did first, and a verdict -- which is
+  // only ever two or three short lines -- ended up in the top third of the
+  // panel with half a screen of nothing under it.
+  const int16_t textW = layout::frameW - 2 * layout::padX;
+  const int16_t textX = layout::screenW / 2;
+  const int16_t dismissY = layout::screenH - layout::frameY - 22;
+
+  String titleLines[2];
+  _tft.setFreeFont(FONT_VALUE);
+  const String title = o.title.length() ? o.title : String(F("MAJOR ORDER"));
+  const int8_t titleN = wrapText(title, textW, 2, titleLines);
+
+  // An announcement leads with the briefing, because that is the thing being
+  // announced. A verdict does not repeat it: the order is over, and what is
+  // worth saying is how it ended and what it paid.
+  String bodyLines[4];
+  int8_t bodyN = 0;
+  int8_t goldLine = -1;  // index into bodyLines that is a reward, not prose
+  _tft.setFreeFont(FONT_BODY);
+  if (!verdict) {
+    bodyN = wrapText(o.briefing, textW, 4, bodyLines);
+  } else {
+    // How far each objective got. On a success this is a formality; on a
+    // failure it is the only place a near miss is visible at all, and "3 of 4
+    // objectives met" is a materially different evening from "0 of 4".
+    if (o.taskCount > 0) {
+      int done = 0;
+      for (int i = 0; i < o.taskCount; i++)
+        if (o.tasks[i].complete) done++;
+      char summary[64];
+      snprintf(summary, sizeof(summary), "%d of %d objectives met", done, o.taskCount);
+      bodyLines[bodyN++] = summary;
+    }
+    if (m.overlay == kOverlaySuccess && o.rewardAmount > 0) {
+      char reward[48];
+      snprintf(reward, sizeof(reward), "%d MEDALS AWARDED", (int)o.rewardAmount);
+      goldLine = bodyN;
+      bodyLines[bodyN++] = reward;
+    }
+  }
+
+  const int16_t titleLead = 24;
+  const int16_t bodyLead = verdict ? 22 : 19;
+  const int16_t gap = 8;
+  const int16_t blockH = titleN * titleLead + (bodyN ? gap + bodyN * bodyLead : 0);
+
+  const int16_t areaTop = bandY + bandH;
+  const int16_t areaBottom = dismissY - 18;  // air above the dismiss line
+  int16_t y = areaTop + ((areaBottom - areaTop) - blockH) / 2;
+  // A four-line briefing can be taller than the space; let it start just under
+  // the band and run long rather than creeping up over it.
+  if (y < areaTop + 14) y = areaTop + 14;
+
+  _tft.setFreeFont(FONT_VALUE);
+  _tft.setTextColor(theme::text, theme::bg);
+  for (int8_t i = 0; i < titleN; i++) {
+    _tft.drawString(titleLines[i], textX, y + titleLead / 2);
+    y += titleLead;
+  }
+  if (bodyN) y += gap;
+
+  _tft.setFreeFont(FONT_BODY);
+  for (int8_t i = 0; i < bodyN; i++) {
+    _tft.setTextColor(i == goldLine ? theme::gold : theme::grey, theme::bg);
+    _tft.drawString(bodyLines[i], textX, y + bodyLead / 2);
+    y += bodyLead;
+  }
+
+  // --- the way out ---------------------------------------------------------
+  //
+  // Named explicitly because this screen has taken over the panel and there is
+  // no other affordance on it. The wording covers the fallback too: the timer
+  // exists so a dead panel cannot strand the HUD here, and someone reading
+  // this should not be left wondering whether anything will ever move again.
+  _tft.setFreeFont(FONT_LABEL);
+  _tft.setTextColor(theme::goldMute, theme::bg);
+  _tft.drawString(F("TOUCH TO DISMISS"), layout::screenW / 2, dismissY);
+  _tft.setTextDatum(TL_DATUM);
+}
+
 void HUDRenderer::update(const HudModel &m, time_t nowUtc) {
+  // An overlay owns the panel outright: no chrome, no carousel, no clocks.
+  // Repainted only when the announcement itself changes, so the screen is
+  // static while it waits to be acknowledged.
+  if (m.overlay != kOverlayNone) {
+    const String sig = String((int)m.overlay) + "|" + String((int)m.overlaySubject.id);
+    if (sig != _overlaySig) {
+      _overlaySig = sig;
+      drawOverlay(m, nowUtc);
+    }
+    return;
+  }
+  // Leaving an overlay means everything underneath it has been painted over.
+  if (_overlaySig.length()) {
+    _overlaySig = "";
+    invalidate();
+  }
+
   if (!_chromeDrawn) {
     _tft.fillScreen(theme::bg);
     drawFrame();

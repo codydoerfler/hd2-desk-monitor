@@ -321,9 +321,37 @@ inline bool ratePerHour(float nowPct, time_t nowAt, float prevPct, time_t prevAt
 }
 
 // Everything the renderer needs for one frame.
+// --- Event overlays ---------------------------------------------------------
+//
+// Full-screen announcements that take the panel away from the carousel until
+// they are acknowledged. There are two kinds and they read differently on
+// purpose: an announcement is "here is what you have been asked to do", a
+// verdict is "here is how it went".
+//
+// The API has no event stream and no outcome field -- a Major Order that ends
+// simply stops appearing in GET /api/v1/assignments -- so all three of these
+// are inferred by the poll loop from what changed between two polls. See
+// classifyOrderOutcome() in main.cpp for the rules and their one genuine
+// ambiguity.
+enum OverlayKind : uint8_t {
+  kOverlayNone = 0,
+  kOverlayNewOrder,  // an assignment id this device has not seen before
+  kOverlaySuccess,   // left the feed with every task complete
+  kOverlayFailure,   // left the feed incomplete, or ran out of time
+};
+
 struct HudModel {
   MajorOrder order;
   WarStats war;
+
+  // The announcement currently owning the screen, and what it is about.
+  //
+  // `overlaySubject` is a copy rather than a reference into `order` because a
+  // verdict outlives its order by definition: by the time SUCCESS is drawn the
+  // assignment has already left the feed and `order` holds the next one, or
+  // nothing at all.
+  OverlayKind overlay = kOverlayNone;
+  MajorOrder overlaySubject;
 
   // Previous poll's progress, one slot per order task. Written by the poll
   // loop before it overwrites `order`, and wiped whenever the Major Order id
