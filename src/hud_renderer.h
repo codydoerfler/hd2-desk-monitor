@@ -78,6 +78,12 @@ class HUDRenderer {
   // are skipped when zero, which is what the boot and setup screens want.
   void drawStatusHeader(const String &title = String(), int8_t tier = 0,
                         uint8_t pages = 0, uint8_t page = 0);
+  // Works out what that row should say for `m` at the current page and repaints
+  // it when the answer changed. Called on every update(), not just on a full
+  // body repaint: a carousel step within one Major Order repaints only the
+  // card, and without this the pips and the objective-type word beside them
+  // stay on whatever the last full repaint left there.
+  void drawHeader(const HudModel &m);
   void drawBody(const HudModel &m, time_t nowUtc);
   void drawIdleBody(const HudModel &m);
   // One campaign card, `p`/`h` resolved by the caller from m.campaigns[]/
@@ -132,9 +138,13 @@ class HUDRenderer {
   // An empty track carrying a centred caption, for an objective with no
   // percentage to show at all.
   void drawIdleTrack(int16_t capY, int16_t barY, int16_t barH, const String &label);
-  // The four-value strip. `accent` tints the enemy-regen column.
+  // The stat strip. `accent` tints the enemy-regen column. `countStyle` swaps
+  // the PUSH/REGEN pair -- which a count objective's bar is not moving on, and
+  // which read "--" on every count card by construction -- for a single ETA
+  // column carrying `eta`; empty `eta` shows the usual dash.
   void drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRate, float rate,
-                 uint16_t accent);
+                 uint16_t accent, const String &eta = String(),
+                 bool countStyle = false);
   // The order's countdown and title, on their own plate bottom-right of the
   // art. The clock ticks every second, so it repaints independently.
   void drawCardClocks(const HudModel &m, time_t nowUtc);
@@ -181,6 +191,7 @@ class HUDRenderer {
   // geometry) is detected even when the underlying data (contentSignature)
   // didn't change — only which page is being looked at did.
   bool _lastCardMode = false;
+  String _headerSig;   // last-painted header row (type word, tier, pip row)
   String _contentSig;  // last-painted body signature
   String _targetSig;   // last-painted card signature
   String _campaignSig; // last-painted campaign-card signature

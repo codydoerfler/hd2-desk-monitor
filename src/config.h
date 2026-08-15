@@ -183,10 +183,8 @@ constexpr int16_t targetY = 90, targetH = 34;
 constexpr int16_t barY = 132, barH = 36;
 constexpr int16_t tileY = 180, tileH = 68, tileGap = 7;
 constexpr int16_t rule3Y = 260;
-// 15px here clipped the baseline off a grouped diver count ("33,400" spans
-// 16px in FreeSans9pt); the row used to be 18 on the card and 15 everywhere
-// else, and unifying the footer inherited the shorter of the two.
-constexpr int16_t footerY = 284, footerH = 18;
+// The footer row's own geometry lives with the rest of the footer constants,
+// down in "header + footer".
 
 // Major Order header bar — the skull badge, the Anton-set order title and the
 // Earth/gold-sweep background wash, in place of the "SUPER EARTH" strip.
@@ -321,9 +319,28 @@ constexpr int16_t stripCols = 4;
 // --- header + footer ------------------------------------------------------
 // Gap between the objective-type word and the LIBCON chip beside it.
 constexpr int16_t libconGapX = 14;
-// Carousel position pips, in the header row opposite the type word.
-constexpr int16_t pipS = 6, pipGap = 5, pipRowGap = 12;
-// Footer: divers on the left, reward centred, sync + link state on the right.
-constexpr int16_t footIconGap = 6;
-constexpr int16_t footDotR = 5;
+// Carousel position pips, in the header row opposite the type word. pipS is
+// the active pip; the inactive ones are hollow and pipDimInset smaller on
+// every side, because fill alone at 6px was a difference you had to hunt for
+// from a desk away. Three pips cost 3*pipS + 2*pipGap = 34px, which still
+// clears the WiFi slot with the longest type word in front of them.
+constexpr int16_t pipS = 8, pipGap = 5, pipRowGap = 12;
+constexpr int16_t pipDimInset = 2;
+// The right-hand slot the WiFi label and dot own on the header row. Also what
+// the rest of that row is cleared *up to* -- see drawStatusHeader().
+constexpr int16_t wifiSlotW = 110;
+// Footer: the order's reward at the left, the sync clock at the right.
+//
+// Deeper than the 18px it was: the reward is the row's headline now that the
+// diver count has gone (it was a second copy of the strip's DIVERS column) and
+// it is set in FONT_VALUE, which needs the height. The row still ends clear of
+// the frame's bottom bracket at y=309.
+constexpr int16_t footerY = 280, footerH = 24;
+constexpr int16_t footDotR = 5;  // the WiFi dot, on the header row
+// Sync clock, right-aligned: a small ring-and-hands glyph and HH:MM in the
+// built-in 6x8 face. A staleness indicator reads as one at caption size --
+// spelling out "SYNCED" in body text spent 150px of the row on a clock.
+constexpr int16_t syncGlyphR = 5;
+constexpr int16_t syncGap = 6;      // glyph -> time
+constexpr int16_t syncBoxW = 96;    // fixed, so a shrinking string leaves no tail
 }  // namespace layout
