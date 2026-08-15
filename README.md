@@ -37,6 +37,7 @@ USB is only needed for the first flash — see
 | Panel | ST7796S, 320x480 native, driven at rotation 1 → **480x320 landscape** |
 | Touch | XPT2046 resistive — wired but **unused** |
 | Audio | GPIO26 (internal DAC) → FM8002E amp, GPIO4 enable (active low), 2-pin JST speaker header |
+| Storage | Onboard MicroSD slot on VSPI (SCK 18, MISO 19, MOSI 23, CS 5). Optional — see [SD card](#sd-card). |
 | Power | USB-C, 5 V. No battery circuitry. |
 
 ### Pin mapping — ⚠️ verify this first
@@ -106,23 +107,32 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 15.2 % (49,868 bytes static)**, **Flash 96.3 %
-(1,893,949 of 1,966,080 bytes)**.
+Resource usage as built: **RAM 16.6 % (54,320 bytes static)**, **Flash 95.4 %
+(1,938,141 of 2,031,616 bytes)**.
 
-That flash figure is high because the `min_spiffs.csv` partition table splits
-the 4 MB into **two 1.875 MiB app slots**, which is what
-[OTA](#firmware-updates) needs: the running image stays put while an update is
-written into the other slot. The 128 KB SPIFFS partition that comes with the
-table is never mounted — every icon, font, backdrop and audio clip is compiled
-into `PROGMEM` — so it costs nothing to leave there.
+That flash figure is high because the partition table splits the 4 MB into
+**two 1.9375 MiB app slots**, which is what [OTA](#firmware-updates) needs: the
+running image stays put while an update is written into the other slot.
 
-> ⚠️ **Roughly 70 KB of headroom, and assets are what eat it.** The next
+This used to be the stock `min_spiffs.csv`. Adding the SD/FAT stack pushed its
+1.875 MiB slots to 98.5 %, so the project now carries its own
+`partitions_hd2.csv`, which drops that table's 128 KB SPIFFS partition — never
+mounted here, and now genuinely obsolete since new assets live on the
+[SD card](#sd-card) rather than in flash — and gives 64 KB of it to *each* app
+slot.
+
+> ⚠️ **A unit already in the field needs one USB reflash to actually get that
+> room.** An OTA writes the app slot and nothing else; the partition table
+> lives at `0x8000` and is only rewritten by a full USB flash. A device still
+> running the old layout keeps its 1.875 MiB slots until then. That is safe —
+> the OTA fails cleanly if an image will not fit — but the headroom below is
+> only real once the unit has been flashed over USB once.
+
+> ⚠️ **Roughly 95 KB of headroom, and assets are what eat it.** The next
 > substantial addition to `hud_biomes.h`, `hud_icons.h` or `hud_audio_clip.h`
-> may not fit. When it stops fitting, the fix is a custom partition CSV that
-> shrinks `nvs`/`spiffs`/`coredump` and grows both app slots — **both**, and to
-> the same size, since OTA needs the inactive slot to hold a whole image. The
-> stock `huge_app.csv` is not an option any more; it has only one app slot and
-> would silently take OTA away.
+> may not fit; the failure mode is a link error, not something subtle. New art
+> and audio belong on the SD card now. The stock `huge_app.csv` is not an
+> option any more; it has only one app slot and would silently take OTA away.
 
 ---
 
@@ -254,14 +264,14 @@ The board drives a 2-pin JST speaker header from an FM8002E amplifier: GPIO26
 carries the ESP32's **internal DAC** output and GPIO4 is the amp's enable line,
 active low. There is no I2S codec on this part.
 
-The device plays one clip, on the two things worth looking up for:
+The device plays a clip on the things worth looking up for:
 
-| Trigger | When |
-|---|---|
-| A new Major Order | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
-| The board updated itself | The running `HD2_FW_VERSION` differs from the one the last boot recorded in NVS (`hd2` / `fwVer`). An OTA reboots into the new image, so the *next* boot is the only moment this is detectable. A first-ever boot has nothing stored and stays silent. |
+| Trigger | Clip | When |
+|---|---|---|
+| A new Major Order | card, else compiled-in | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
+| The board updated itself | compiled-in | The running `HD2_FW_VERSION` differs from the one the last boot recorded in NVS (`hd2` / `fwVer`). An OTA reboots into the new image, so the *next* boot is the only moment this is detectable. A first-ever boot has nothing stored and stays silent. |
 
-The clip is 8-bit unsigned PCM at 8 kHz mono, compiled into `PROGMEM` as
+The compiled-in clip is 8-bit unsigned PCM at 8 kHz mono, stored in `PROGMEM` as
 `src/hud_audio_clip.h` and played by `audio::playPcm8()`. 8 kHz is telephone
 bandwidth — the lowest rate that still carries a shouted line — and at one
 byte per sample it costs 8 KB per second, which is the whole reason the clip
@@ -286,6 +296,69 @@ you to look at the wrong thing.
 The amplifier is left disabled whenever nothing is playing: it idles audibly
 otherwise, and switching it around each clip is also what keeps the DAC's rest
 voltage from thumping the cone on the way in and out.
+
+---
+
+## SD card
+
+**Entirely optional.** Without a card the device behaves exactly as it always
+has; the only difference is a single `[sd] no card` line in the serial log at
+boot. Everything the HUD needs to draw is compiled in.
+
+With a card, the event screens get their own audio. The board's MicroSD slot is
+**already wired** — nothing to solder, no pin to free up. It sits on the
+ESP32's *other* SPI peripheral (VSPI: SCK 18, MISO 19, MOSI 23, CS 5), which is
+why it can be added without touching the display: TFT_eSPI owns HSPI
+(12/13/14/15) and the two peripherals never see each other's traffic.
+
+### Preparing a card
+
+Format **FAT32** (an ESP32 will not mount exFAT, which is what macOS picks by
+default for cards over 32 GB — choose "MS-DOS (FAT)" in Disk Utility). Then:
+
+```bash
+python3 tools/gen_sd_assets.py            # writes sdcard/
+python3 tools/gen_sd_assets.py --preview  # ...and dumps ASCII waveforms
+cp -R sdcard/ /Volumes/<CARD>/            # contents at the card's root
+```
+
+The layout the firmware looks for:
+
+```
+/audio/mo_new.wav       played when a new Major Order arrives
+/audio/mo_success.wav   played when one is completed
+/audio/mo_failure.wav   played when one is lost
+```
+
+Each file is optional on its own — a missing one just means that event is
+silent, and the new-order case additionally falls back to the compiled-in clip.
+
+The generator prefers a real recording at
+`tools/assets/<name>_source.{mp3,wav,m4a,aif}` and converts it the same way
+`gen_audio_clip.py` converts the hellpods line. With no source present it
+synthesises plain terminal tones — a rising triad for success, a descending
+tritone for failure — so a clean checkout produces a working card without
+shipping game audio nobody can redistribute. Drop a source file in and it wins.
+
+### What the reader will and will not play
+
+`src/hud_storage.cpp` walks the RIFF chunk list (rather than assuming `fmt `
+then `data` at fixed offsets, which a `LIST`/`INFO` chunk would turn into a
+burst of noise) and accepts **uncompressed PCM, 8- or 16-bit, mono or stereo,
+any sample rate**. Stereo plays the left channel only; the DAC is mono.
+Anything else — ADPCM, IEEE float, MP3 renamed to `.wav` — is refused with a
+named log line, because the fix for that is on the card and not in the
+firmware.
+
+Playback streams off the card in 2 KB blocks, reading one block *ahead* of the
+samples being clocked out. A 2 KB read lands in a millisecond or three, which
+at 125 µs per sample would otherwise be plainly audible as a click at every
+block boundary.
+
+Files are only read when an event fires. The card is not polled, not written
+to, and not required to be present at boot — it can be inserted later, though
+the mount is attempted once during `setup()`, so the device needs a reboot to
+notice a card added while it was running.
 
 ---
 
@@ -423,6 +496,7 @@ campaigns become the carousel instead.
 | `src/hd2_ota.{h,cpp}` | Release check + self-flash. See [Firmware updates](#firmware-updates). |
 | `src/hud_renderer.{h,cpp}` | Drawing only. Knows nothing about HTTP. |
 | `src/hud_audio.{h,cpp}` | The speaker: amp enable, DAC playback. See [Audio](#audio). |
+| `src/hud_storage.{h,cpp}` | The MicroSD slot: mount, WAV parse, streamed playback. See [SD card](#sd-card). |
 | `src/hd2_model.h` | Plain structs passed between the two |
 | `src/config.h` | Tunables, palette, layout constants |
 | `src/hud_fonts.h` | Font aliases (see the warning in that file) |

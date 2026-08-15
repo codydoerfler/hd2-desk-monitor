@@ -31,6 +31,9 @@ new Major Order and after an OTA update.
   XPT2046 touch is wired but unused -- swipe navigation was built and
   reverted (calibration would not hold on this panel), so the carousel is
   timed. Audio: GPIO26 internal DAC -> FM8002E amp, GPIO4 enable (active low).
+  There is an onboard MicroSD slot on the *other* SPI peripheral (VSPI: SCK
+  18, MISO 19, MOSI 23, CS 5) -- no wiring needed, and no contention with the
+  display, which owns HSPI. Optional at runtime; see README's SD card section.
 
 ## Source layout
 
@@ -45,6 +48,11 @@ new Major Order and after an OTA update.
 - `src/hud_audio.cpp` / `.h` — the speaker. Amp enable + blocking 8-bit DAC
   playback; knows nothing about the model, same isolation the renderer keeps.
 - `src/hud_audio_clip.h` — generated 8kHz PCM clip (~30KB PROGMEM).
+- `src/hud_storage.cpp` / `.h` — the MicroSD slot. Mount, RIFF/WAVE parse,
+  block-streamed playback through hud_audio's stream API. Everything here is
+  best-effort: no card, or a missing file, is a logged note and nothing more.
+  New assets belong here rather than in PROGMEM — flash is the binding
+  constraint on this board and the card is not.
 - `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
   tiles, crest/skull mark, shield icon, hazard chips, etc).
 - `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
