@@ -224,6 +224,39 @@ static HudModel sceneExtraction() {
   return m;
 }
 
+// A three-target order whose targets are not all the same kind: a liberation,
+// then a count, then a defence. Rendered by shootAdvance() rather than shoot()
+// — see main() — so what lands in the PNG is the *second* page reached by a
+// carousel step, not a first page painted onto a cleared screen.
+//
+// The mixture is the point. Everything that has to follow the carousel has to
+// visibly differ between page 0 and page 1: the pip row, the objective-type
+// word, and the stat strip's column count (a liberation quotes PUSH/REGEN, a
+// count has no such pair and quotes an ETA instead).
+static HudModel sceneCarousel() {
+  HudModel m = sceneLiberation();
+  m.order.title = "STEEL VETERANS";
+  m.order.taskCount = 3;
+
+  OrderTask &count = m.order.tasks[1];
+  count.valid = true; count.taskType = kTaskTypeEradicate;
+  count.planetIndex = 280;
+  count.progress = 277438986ull; count.goal = 1250000000ull;
+  count.planet.valid = true; count.planet.index = 280;
+  count.planet.name = "SENGE 23"; count.planet.sector = "MERIDIA";
+  count.planet.biome = "HIGHLANDS"; count.planet.owner = "Terminids";
+  count.planet.playerCount = 18240;
+  count.planet.observedAt = kNow - 60;
+  RateSample &h = m.history[1];
+  h.haveCount = true;
+  h.countAt = kNow - 60 - 3600;
+  h.countPct = 22.195f - 0.412f;
+
+  OrderTask &def = m.order.tasks[2];
+  def.valid = true; def.taskType = kTaskTypeDefend; def.planetIndex = 64;
+  return m;
+}
+
 static HudModel sceneStale() {  // link down, last good data still on screen
   HudModel m = sceneInvasion();
   m.stale = true; m.wifiUp = false; m.lastSuccess = kNow - 3600;
@@ -307,6 +340,26 @@ int main(int argc, char **argv) {
     printf("wrote %s\n", out.c_str());
   };
 
+  // Every scene above is shot through invalidate(), i.e. a full repaint onto a
+  // cleared screen — which is exactly the path a running device almost never
+  // takes. The carousel advancing between two targets of one order repaints
+  // the card and nothing else, and that is where the header row's pips were
+  // found stuck: they were only ever painted by the full-body path.
+  //
+  // So this one deliberately does not invalidate. It paints page 0, advances
+  // the way a swipe or the dwell timer would, and paints again — a frame the
+  // renderer reached incrementally. The pip row and the objective-type word
+  // beside it have to have moved between the two halves.
+  auto shootAdvance = [&](const String &name, const HudModel &m) {
+    hud.invalidate();
+    hud.update(m, kNow);          // page 0, from scratch
+    hud.advancePage(m, 1);
+    hud.update(m, kNow);          // page 1, incrementally
+    const String out = "preview_" + name + ".png";
+    writePng(out.c_str(), tft.pixels(), tft.width(), tft.height(), scale);
+    printf("wrote %s\n", out.c_str());
+  };
+
   // The boot screen takes no model, so it is handled on its own.
   auto shootBoot = [&]() {
     hud.showBoot("Contacting High Command...");
@@ -317,6 +370,7 @@ int main(int argc, char **argv) {
   if (argc > 1) {
     const String want = argv[1];
     if (want == "boot") { shootBoot(); return 0; }
+    if (want == "carousel") { shootAdvance(want, sceneCarousel()); return 0; }
     auto it = scenes.find(want);
     if (it == scenes.end()) { fprintf(stderr, "unknown scene: %s\n", argv[1]); return 1; }
     shoot(want, it->second());
@@ -325,5 +379,6 @@ int main(int argc, char **argv) {
 
   shootBoot();
   for (auto &kv : scenes) shoot(kv.first, kv.second());
+  shootAdvance("carousel", sceneCarousel());
   return 0;
 }

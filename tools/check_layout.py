@@ -66,6 +66,16 @@ def w(font, s):
     return sum(g.get(ord(c), g[0x20]) for c in s)
 
 
+# TFT_eSPI's built-in font 1 (setFreeFont(nullptr)): a fixed 5x7 cell plus one
+# column of spacing. No table to load -- the advance is the same for every
+# character. Used by the strip/bar captions and the footer's sync clock.
+GLCD_W, GLCD_H = 6, 8
+
+
+def glcd(s):
+    return GLCD_W * len(s)
+
+
 def icon_dims(path="src/hud_icons.h"):
     """{icon name: (w, h)} from the generated bitmap header."""
     txt = open(path).read()
@@ -119,6 +129,7 @@ kTileW = (contentW - 2 * tileGap) // 3   # 142
 kStatW = (contentW - statGap) // 2       # 216
 kStatInsetX = 12
 kTargetNameX = padX + ICONS["target"][0] + targetIconGap
+kRewardBoxW = 56
 
 # Mirrors factionIcon() in hud_renderer.cpp. "Humans" is absent there too: the
 # SEAF badge is text-only, like an owner with no icon.
@@ -261,7 +272,7 @@ for label, font, h, chars in [
         # barCapH/stripCapH is not a bound worth asserting.
         ("strip value row", LABEL, stripValH, CAPS),
         ("clock plate row", LABEL, plateClockH, CAPS),
-        ("footer count row", BODY, footerH, "0123456789,")]:
+        ("footer reward row", VALUE, footerH, "0123456789")]:
     need = glyph_span(font, chars)
     ok = h >= need
     print(f"{'ok ' if ok else 'BAD'} {label:<52} {h:>4}px (needs {need})")
@@ -332,13 +343,23 @@ for lbl in ["NETWORK", "PASSWORD"]:
 for val in ["HD2-Monitor", "helldive"]:
     check(f'value "{val}" @12pt', w(VALUE, val), sinner)
 
-print("\n=== footer (local clock time, no unit suffix) ===")
-for s in ["SYNCED 14:32", "SYNCED 08:32", "STALE - LAST 14:32", "NO DATA YET"]:
-    check(f'left "{s}"', w(BODY, s), contentW // 2)
+print("\n=== footer (reward at the left, sync clock at the right) ===")
+# The reward is the row's headline now, set at 12pt bold in a fixed box so a
+# drop from 120 to 45 medals cannot leave the hundreds digit standing.
 for r in ["40", "150", "1000"]:
-    check(f'right medal + "{r}"',
-          ICONS["medal"][0] + footerIconGap + w(BODY, r), contentW // 2)
+    check(f'reward "{r}" @12pt bold', w(VALUE, r), kRewardBoxW)
 check("medal height in the footer row", ICONS["medal"][1], footerH)
+# Nothing is drawn between the two blocks, so this is slack, not a tight fit --
+# but it is what guarantees a four-digit reward cannot reach the clock.
+check("reward block clear of the sync box",
+      cardX + ICONS["medal"][0] + footerIconGap + kRewardBoxW,
+      contentR - syncBoxW)
+# The sync clock: a ring glyph and HH:MM in the built-in 6x8 face, right
+# aligned. Staleness is carried by a caption-size prefix as well as the colour
+# -- an amber tint alone is not a difference you can name at this size.
+for s in ["14:32", "STALE 13:53", "NO DATA"]:
+    check(f'clock glyph + "{s}" @6x8', 2 * syncGlyphR + syncGap + glcd(s), syncBoxW)
+check("6x8 sync row inside the footer", GLCD_H, footerH)
 
 print("\n=== centred status lines ===")
 for s in ["ESTABLISHING UPLINK", "SUPER EARTH", "WIFI SETUP"]:
@@ -365,11 +386,25 @@ check("hd2LogoBoot width in the content column", blw, contentW)
 check("hd2LogoBoot above the boot caption (y=48)", 48 + blh, 232)
 check("boot status line inside the frame", 264 + 20, frameY + frameH)
 
-print("\n=== header row (label + wifi block) ===")
-se = w(LABEL, "SUPER EARTH")
-check('"SUPER EARTH" @9pt bold in its box', se, 200)
-check("label vs the WiFi block", padX + se, contentR - 110)
-check('"OFFLINE" @9pt bold in wifi box', w(LABEL, "OFFLINE"), 110 - (2 * 5 + 6))
+print("\n=== header row (type word, LIBCON chip, carousel pips, wifi block) ===")
+# Every word drawStatusHeader() can be handed: the plain strip, the two planet
+# objective types, and the count-task headers from countWords().
+HEADER_WORDS = ["SUPER EARTH", "LIBERATION", "DEFENSE", "OBJECTIVE",
+                "EXTRACTION", "ERADICATION", "OPERATIONS"]
+for s in HEADER_WORDS:
+    check(f'"{s}" @9pt bold in its box', w(LABEL, s), contentW - wifiSlotW)
+# The chip and the pips are packed off the type word's measured width, so the
+# longest word is the one that has to leave room for them. Five pips is the
+# cap: four Major Order tasks, or five campaigns when there is no order.
+MAX_PIPS = 5
+pipRowW = pipRowGap + MAX_PIPS * pipS + (MAX_PIPS - 1) * pipGap
+for s in HEADER_WORDS:
+    check(f'"{s}" + chip + {MAX_PIPS} pips vs the WiFi slot',
+          padX + w(LABEL, s) + libconGapX + libconW + pipRowW,
+          contentR - wifiSlotW)
+check("active pip inside the header row", pipS, headerH)
+check('"OFFLINE" @9pt bold in wifi box',
+      w(LABEL, "OFFLINE"), wifiSlotW - (2 * footDotR + 6))
 
 print("\n=== faction badge ===")
 for n in sorted(set(FACTION_ICON.values())):

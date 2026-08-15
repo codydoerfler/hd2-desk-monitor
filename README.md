@@ -200,9 +200,10 @@ that keeps a free community API open.
 ### Local time
 
 The device clock runs on UTC. A fixed offset is applied only where a **clock
-time** is drawn — that is the footer, `SYNCED hh:mm` and `STALE - LAST hh:mm`.
-Durations are never shifted: the Major Order countdown is a length of time, not
-a wall-clock reading, so it is identical in every timezone.
+time** is drawn — that is the footer's sync clock, `hh:mm` beside a small ring
+glyph, and `STALE hh:mm` when the data behind it has aged out. Durations are
+never shifted: the Major Order countdown is a length of time, not a wall-clock
+reading, so it is identical in every timezone.
 
 Set it in the WiFi setup portal, in the **UTC offset in hours** field below the
 network picker. Accepted forms:
@@ -250,8 +251,8 @@ of days; the only thing that moves minute to minute is the liberation
 percentage. Five minutes is already generous.
 
 Derived from this value: `kStaleAfterS = HD2_POLL_INTERVAL_S * 2` — how long
-data can go unrefreshed before the footer switches to the dimmed "STALE"
-treatment.
+data can go unrefreshed before the footer's sync clock turns amber and picks up
+a "STALE" prefix.
 
 ### Everything else
 
@@ -557,8 +558,8 @@ screen as it advances:
 | header | objective type, the LIBCON chip, carousel pips, link state |
 | art | the biome plate, with the planet's name, sector and headline stat set over it, the faction mark on a dark disc top-right, and (order cards only) the order's name and a countdown plate |
 | bars | one track for a liberation, two for a defence — each captioned with what it measures, its value and its measured rate |
-| strip | four values: diver share, divers present, the players' push, the enemy's regen |
-| footer | divers present, the order's reward, last sync |
+| strip | on a planet objective, four values: diver share, divers present, the players' push, the enemy's regen. On a count objective — kills, extractions, operations — the last two are structurally empty, so the row runs three wide and ends on a projected ETA instead |
+| footer | the order's reward at the left, the sync clock at the right |
 
 The two differ only in how much of that budget the bars need. A defence draws
 two tracks and a liberation one, so the **art absorbs the difference**
@@ -707,7 +708,7 @@ connection) and sprites (~27 KB peak).
 | Multiple simultaneous orders | The first is shown. |
 | Planet fetch fails, index unchanged | Previous planet data is reused. |
 | War fetch fails | Previous war stats are kept; the tiles never blank. |
-| API or WiFi failure | The last good data stays on screen. The footer switches to a dimmed `STALE - LAST hh:mm`. |
+| API or WiFi failure | The last good data stays on screen. The footer's sync clock turns amber and reads `STALE hh:mm`. |
 | Repeated failures | Exponential backoff, 15 s doubling to a 10-minute ceiling. |
 | WiFi drops | Header indicator turns red `OFFLINE`; a reconnect is nudged every 15 s. |
 | Captive portal ignored | Reboots after 5 minutes and retries the saved network. |
@@ -744,7 +745,13 @@ one `pio run` (they read `.pio/libdeps/...`).
 python3 tools/check_layout.py   # asserts every HUD string fits its box
 ```
 
-Scenes are `boot`, `defense`, `invasion`, `liberation`, `idle` and `stale`.
+Scenes are `boot`, `defense`, `invasion`, `liberation`, `campaign`, `count`,
+`extraction`, `idle`, `stale`, `neworder`, `success`, `failure` and `carousel`.
+
+`carousel` is the odd one out. Every other scene is shot onto a freshly cleared
+screen, which is the one path the device almost never takes; `carousel` advances
+a page and repaints *incrementally*, the way the board spends its time. That is
+the path a header stuck on the previous page's pips shows up on, and it did.
 
 ### How the preview works
 
