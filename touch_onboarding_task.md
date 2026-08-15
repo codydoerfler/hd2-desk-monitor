@@ -19,6 +19,21 @@ comment explains why unprompted calibration on every boot would be worse than
 the current gap — do not regress that reasoning, only fix first-time
 discovery).
 
+## Visuals — DEFERRED, do not design custom art
+
+Cody is providing the actual graphics for the first-boot calibration prompt
+himself (in progress, not delivered yet). Do NOT invest effort drawing custom
+chrome, icons, or polished layout for that full-screen prompt. Build the
+logic/plumbing/state-machine now with placeholder text only (plain
+textBox/println-style, whatever is fastest to write), structured so the
+placeholder is trivially swappable for a real image later — e.g. a single
+clearly-named draw function/call site for the prompt's visual content, not
+visuals scattered inline across the flow logic. Leave a `// TODO: replace
+with Cody's supplied art` comment at that call site. The persistent
+uncalibrated hint (item 2) is small/textual by nature and not part of what
+Cody is designing — that one can be finished normally, text is fine and
+expected there, no placeholder needed.
+
 ## What to build
 
 1. **Forced first-boot calibration flow.** On a genuinely fresh unit (NVS has
@@ -33,7 +48,8 @@ discovery).
    power-user gesture. If the panel truly isn't touch-capable or nobody
    touches it (timeout), fall back gracefully to the existing
    default-calibration behavior rather than blocking boot forever — reuse
-   calibrate()'s existing timeout handling.
+   calibrate()'s existing timeout handling. Per the deferred-visuals note
+   above, this screen's content is placeholder text for now, not final art.
 
 2. **Persistent on-screen hint while still uncalibrated.** For someone who
    skips or times out the first-boot flow (or is running firmware that
