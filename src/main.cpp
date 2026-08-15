@@ -24,6 +24,26 @@
 #include "hud_storage.h"
 #include "hud_touch.h"
 
+// FreeRTOS gives loopTask (which setup()/loop() both run on) an 8 KB stack
+// by default. That overflows during poll()'s HTTPS fetch -- "Stack canary
+// watchpoint triggered (loopTask)", reproducible every boot, backtrace decoding
+// into mbedTLS's ECC point multiplication (mbedtls_ecp_mul_restartable /
+// ecp_mul_comb) deep in the TLS handshake against api.helldivers2.dev. That
+// call chain is one of the most stack-hungry in mbedTLS and a known issue on
+// ESP32 with elliptic-curve cipher suites; 8 KB was never enough for it, this
+// isn't a marginal overrun from anything new here. Confirmed by decoding two
+// separate crash backtraces from real hardware, not assumed.
+//
+// The natural-looking fix -- a CONFIG_ARDUINO_LOOP_STACK_SIZE build flag in
+// platformio.ini -- does not reach the framework's core main.cpp in this
+// PlatformIO setup and was confirmed (via compile_commands.json) to have no
+// effect; two flashed attempts at 12 KB and 24 KB both crashed identically.
+// This weak-symbol override is the Arduino-ESP32 core's own documented
+// escape hatch for exactly this (see cores/esp32/main.cpp,
+// getArduinoLoopTaskStackSize()) and is guaranteed to compile as part of
+// this project rather than depend on a flag surviving framework recompilation.
+size_t getArduinoLoopTaskStackSize(void) { return 24576; }
+
 static HUDRenderer hud;
 static HD2Api api;
 static HD2Ota ota;
