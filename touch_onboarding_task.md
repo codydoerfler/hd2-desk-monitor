@@ -19,20 +19,45 @@ comment explains why unprompted calibration on every boot would be worse than
 the current gap — do not regress that reasoning, only fix first-time
 discovery).
 
-## Visuals — DEFERRED, do not design custom art
+## Visuals — final direction, build this natively (no photo asset)
 
-Cody is providing the actual graphics for the first-boot calibration prompt
-himself (in progress, not delivered yet). Do NOT invest effort drawing custom
-chrome, icons, or polished layout for that full-screen prompt. Build the
-logic/plumbing/state-machine now with placeholder text only (plain
-textBox/println-style, whatever is fastest to write), structured so the
-placeholder is trivially swappable for a real image later — e.g. a single
-clearly-named draw function/call site for the prompt's visual content, not
-visuals scattered inline across the flow logic. Leave a `// TODO: replace
-with Cody's supplied art` comment at that call site. The persistent
-uncalibrated hint (item 2) is small/textual by nature and not part of what
-Cody is designing — that one can be finished normally, text is fine and
-expected there, no placeholder needed.
+Cody supplied a reference composition (Helldivers 2 style "TOUCH CALIBRATION
+REQUIRED" warning card) for the first-boot full-screen prompt. Reproduce it
+as native TFT_eSPI vector drawing at the panel's real 480x320 landscape
+resolution (config.h screenW/screenH), using the existing theme:: palette
+(theme::bg near-black, theme::gold accent, theme::red for the warning
+triangle) and the project's existing fonts (FONT_LABEL/FONT_VALUE/FONT_BODY
+per whatever textBox() helper is already used elsewhere in hud_renderer.cpp —
+reuse those, don't add a new font). Do NOT attempt to reproduce the
+reference's photographic starfield/ship background or the HELLDIVERS II
+logo wordmark — those are copyrighted game assets and out of scope; keep the
+background plain theme::bg like the rest of the HUD. What to carry over from
+the reference, redrawn natively:
+
+  - A gold-bordered warning card/panel, roughly centered, dark fill.
+  - A warning triangle + "TOUCH CALIBRATION REQUIRED" header row in gold,
+    matching the weight/prominence of the reference (see attached image for
+    exact proportions — header bar with a rule beneath it separating it from
+    the body).
+  - A crosshair-with-pointing-hand icon on the left side of the body, gold
+    line art. Simple enough to draw with TFT_eSPI primitives (circles +
+    lines for the crosshair, a basic hand/finger shape) or, if a pointing-
+    hand glyph is impractical to hand-draw cleanly at this resolution, a
+    simpler equivalent icon that reads the same at a glance (a finger-tap /
+    target icon) is an acceptable substitute — keep it recognizable, don't
+    over-engineer pixel art.
+  - Body text on the right of the icon: an address line ("Helldiver," or
+    similar in-universe framing is fine, keep it short) and 1-2 short lines
+    explaining touch calibration is needed, roughly matching the reference's
+    tone and length — do not just paste the literal reference copy verbatim,
+    adapt if needed to fit 480x320, but keep the in-universe HD2 voice.
+  - A hazard-stripe accent bar at the bottom of the card (diagonal
+    gold/black stripes), matching the reference's footer treatment.
+
+This IS the tap-to-calibrate trigger screen from item 1 below — tapping
+anywhere on it (or the existing timeout) proceeds into touch::calibrate()
+exactly as already scoped. The persistent uncalibrated hint (item 2) stays
+small/textual, unrelated to this card design, unaffected by any of the above.
 
 ## What to build
 
@@ -48,8 +73,9 @@ expected there, no placeholder needed.
    power-user gesture. If the panel truly isn't touch-capable or nobody
    touches it (timeout), fall back gracefully to the existing
    default-calibration behavior rather than blocking boot forever — reuse
-   calibrate()'s existing timeout handling. Per the deferred-visuals note
-   above, this screen's content is placeholder text for now, not final art.
+   calibrate()'s existing timeout handling. This screen's content is the
+   native-drawn card described in the Visuals section above, final, not a
+   placeholder.
 
 2. **Persistent on-screen hint while still uncalibrated.** For someone who
    skips or times out the first-boot flow (or is running firmware that
