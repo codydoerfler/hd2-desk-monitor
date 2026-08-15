@@ -176,9 +176,110 @@ static HudModel sceneCampaign() {
   return m;
 }
 
+// A count-style objective: progress measured against the task's own goal
+// rather than a planet's health. Numbers are lifted verbatim from live order
+// 3979642198 (2026-08-15), whose eradicate task sat at 277,438,986 of
+// 1,250,000,000 on Senge 23 — the order that exposed the bug this scene
+// exists to keep fixed. The planet resolves here, which is the healthy case.
+static HudModel sceneCount() {
+  HudModel m = sceneDefense();
+  m.order.title = "VOID CORRIDOR";
+  OrderTask &t = m.order.tasks[0];
+  t.taskType = kTaskTypeEradicate;
+  t.planetIndex = 280;
+  t.progress = 277438986ull;
+  t.goal = 1250000000ull;
+  t.complete = false;
+  t.planet.index = 280;
+  t.planet.name = "SENGE 23"; t.planet.sector = "UNKNOWN";
+  t.planet.biome = "HIGHLANDS"; t.planet.owner = "Terminids";
+  t.planet.playerCount = 18240;
+  // An earlier reading, an hour back, so the bar can quote a real %/h. This
+  // rides on countPct/countAt rather than the planet-derived fields — the
+  // whole point of keeping them separate is that a count objective's rate
+  // survives a planet lookup the API cannot answer.
+  RateSample &h = m.history[0];
+  h.haveCount = true;
+  h.countAt = kNow - 60 - 3600;
+  h.countPct = 22.195f - 0.412f;
+  return m;
+}
+
+// The same family of objective with its planet missing — /planets/{index}
+// 404s for indices absent from the community API's static table, which is the
+// normal state of a planet added to the war days before the table catches up.
+// This is the exact state the reported bug was photographed in, and the card
+// must still show real progress: no artwork and no stat strip, but a live bar,
+// an honest percentage, and the planet index instead of "UNKNOWN".
+static HudModel sceneExtraction() {
+  HudModel m = sceneCount();
+  OrderTask &t = m.order.tasks[0];
+  t.taskType = kTaskTypeExtract;
+  t.planetIndex = 278;
+  t.progress = 7362236ull;
+  t.goal = 35000000ull;
+  t.planet = PlanetInfo{};  // the 404: no record at all, not a blank one
+  RateSample &h = m.history[0];
+  h.countPct = 21.035f - 0.503f;
+  return m;
+}
+
 static HudModel sceneStale() {  // link down, last good data still on screen
   HudModel m = sceneInvasion();
   m.stale = true; m.wifiUp = false; m.lastSuccess = kNow - 3600;
+  return m;
+}
+
+// --- event overlays --------------------------------------------------------
+//
+// The three full-screen announcements. They ignore everything in the model
+// except `overlay` and `overlaySubject`, so the underlying scene is only here
+// to prove that: whatever is behind them, none of it should reach the panel.
+//
+// Briefing text is a real one in shape and length -- High Command writes long,
+// and a preview using a short placeholder would not exercise the wrap or show
+// where the four-line cap actually bites.
+static MajorOrder overlaySubject() {
+  MajorOrder o;
+  o.valid = true;
+  o.id = 3979642198;
+  o.title = "OPERATION SWIFT DISASSEMBLY";
+  o.briefing =
+      "Automaton forces have massed in the Umlaut sector and are staging for a "
+      "push on the Cyberstan corridor. High Command requires the immediate "
+      "eradication of one billion two hundred and fifty million Terminids to "
+      "deny them the flank. Deploy at once, Helldivers.";
+  o.rewardAmount = 45;
+  o.expiration = kNow + 3 * 24 * 3600;
+  o.taskCount = 4;
+  for (int i = 0; i < 4; i++) o.tasks[i].valid = true;
+  return o;
+}
+
+static HudModel sceneNewOrder() {
+  HudModel m = sceneDefense();
+  m.overlay = kOverlayNewOrder;
+  m.overlaySubject = overlaySubject();
+  return m;
+}
+
+static HudModel sceneSuccess() {
+  HudModel m = sceneDefense();
+  m.overlay = kOverlaySuccess;
+  m.overlaySubject = overlaySubject();
+  for (int i = 0; i < m.overlaySubject.taskCount; i++)
+    m.overlaySubject.tasks[i].complete = true;
+  return m;
+}
+
+// A near miss rather than a rout: three of four met is the case where the
+// objective count is worth printing at all, and the one most likely to be
+// misread if the layout crowds it.
+static HudModel sceneFailure() {
+  HudModel m = sceneDefense();
+  m.overlay = kOverlayFailure;
+  m.overlaySubject = overlaySubject();
+  for (int i = 0; i < 3; i++) m.overlaySubject.tasks[i].complete = true;
   return m;
 }
 
@@ -192,7 +293,10 @@ int main(int argc, char **argv) {
       {"defense", sceneDefense},   {"invasion", sceneInvasion},
       {"liberation", sceneLiberation}, {"idle", sceneIdle},
       {"campaign", sceneCampaign},
+      {"count", sceneCount},       {"extraction", sceneExtraction},
       {"stale", sceneStale},
+      {"neworder", sceneNewOrder}, {"success", sceneSuccess},
+      {"failure", sceneFailure},
   };
 
   auto shoot = [&](const String &name, const HudModel &m) {

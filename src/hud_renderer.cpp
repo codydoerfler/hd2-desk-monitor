@@ -247,6 +247,44 @@ static CardRates cardRates(const HudModel &m, uint8_t idx, const OrderTask &t) {
   return r;
 }
 
+// The %-per-hour a count-style objective is moving at, measured the same way
+// cardRates() measures the planet ones — by diffing consecutive polls — but
+// from the assignment payload's own progress rather than planet health, and so
+// available even when the task's planet is not.
+//
+// Deliberately not folded into cardRates(): the stat strip's PUSH/REGEN columns
+// describe the *planet*, and handing them an objective's rate would quote a
+// push figure for a planet whose health is not moving at all.
+static CardRates countRate(const HudModel &m, uint8_t idx, const OrderTask &t) {
+  CardRates r;
+  if (idx >= (uint8_t)kMaxOrderTasks || !taskIsCount(t)) return r;
+  const RateSample &h = m.history[idx];
+  if (!h.haveCount) return r;
+  r.have = ratePerHour(taskPercent(t), m.lastSuccess, h.countPct, h.countAt, r.pct);
+  return r;
+}
+
+// What a count-style task is counting, in the three places the card names it.
+// Only the wording keys off the type code — whether a task gets a progress bar
+// at all is decided by its goal (see taskIsCount) — so an objective type this
+// build has never seen still renders real progress, just under a generic
+// label. Getting the wording wrong costs a word; getting the bar wrong costs
+// the whole card, which is the trade this split exists to make.
+struct CountWords {
+  const char *header;    // header row's type word
+  const char *track;     // track caption, before the running total
+  const char *headline;  // headline verb, after the percentage
+};
+
+static CountWords countWords(int32_t taskType) {
+  switch (taskType) {
+    case kTaskTypeExtract:    return {"EXTRACTION",  "EXTRACTED",  "EXTRACTED"};
+    case kTaskTypeEradicate:  return {"ERADICATION", "ELIMINATED", "ELIMINATED"};
+    case kTaskTypeOperations: return {"OPERATIONS",  "OPERATIONS", "COMPLETE"};
+    default:                  return {"OBJECTIVE",   "PROGRESS",   "COMPLETE"};
+  }
+}
+
 // Everything that, when it changes, warrants a full body repaint. The clocks,
 // WiFi dot and footer are deliberately excluded — they update themselves
 // through their own small sprites, and so are the MO card and the campaign
@@ -314,6 +352,18 @@ static String targetSignature(const HudModel &m, uint8_t idx) {
   s += String(t->planetIndex);
   s += '|';
   s += t->complete ? '1' : '0';
+  s += '|';
+  // A count task's progress moves every poll while its planet record sits
+  // perfectly still, so without these the card would draw its first percentage
+  // and then never repaint. Percent is carried at 1/100th resolution rather
+  // than the raw total to keep the whole signature inside Arduino String's
+  // 32-bit numeric formatting; a billion-kill goal still moves several hundred
+  // of those steps between two five-minute polls.
+  s += String((int)(taskPercent(*t) * 100.0f));
+  s += '|';
+  s += formatCompact(t->goal);
+  s += '|';
+  s += String((unsigned long)m.history[idx < kMaxOrderTasks ? idx : 0].countAt);
   s += '|';
   s += p.name;
   s += '|';
@@ -385,6 +435,16 @@ struct StatusLine {
 };
 
 static StatusLine objectiveStatus(const OrderTask &t) {
+  if (taskIsCount(t)) {
+    // A count task always has an honest percentage of its own, so it never
+    // needs the neutral fallback below — and must not get it, since that
+    // branch reads "OBJECTIVE COMPLETE" off a flag that only means "started".
+    // Green once the goal is met, because the API keeps counting past it and
+    // the percentage alone would sit at 100% looking unfinished.
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%.1f%% %s", taskPercent(t), countWords(t.taskType).headline);
+    return {String(buf), t.complete ? theme::green : theme::gold};
+  }
   if (t.taskType == kTaskTypeDefend) {
     // Defence is pass/fail per task, and the API says which it is. The planet's
     // health only tells us whether an assault is in progress right now.
@@ -810,7 +870,8 @@ void HUDRenderer::drawFactionMark(const String &faction) {
 // card types open with this, which is what makes the carousel hold still as
 // it advances -- only the headline stat and what sits below the band differ.
 void HUDRenderer::drawArtBand(const PlanetInfo &p, int16_t h, const String &headline,
-                              uint16_t headlineColor, const String &orderTitle) {
+                              uint16_t headlineColor, const String &orderTitle,
+                              const String &fallbackName) {
   const int8_t bi = biomeFromName(p.biome);
   const uint16_t *plate =
       (uint16_t *)pgm_read_ptr(&biomes::table[bi < 0 || bi >= biomes::kCount
@@ -827,7 +888,9 @@ void HUDRenderer::drawArtBand(const PlanetInfo &p, int16_t h, const String &head
 
   // Anton is condensed, but planet names run to "ANGEL'S VENTURE"; drop a cut
   // and then trim rather than run under the mark.
-  String name = upper(p.valid ? p.name : String(F("UNKNOWN")));
+  String name = upper(p.valid ? p.name
+                              : (fallbackName.length() ? fallbackName
+                                                       : String(F("UNKNOWN"))));
   const GFXfont *nameFont = FONT_HEADLINE;
   _tft.setFreeFont(nameFont);
   if (_tft.textWidth(name.c_str()) > availW) {
@@ -879,11 +942,24 @@ void HUDRenderer::drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRat
   const uint32_t galaxy = m.war.valid ? m.war.playerCount : 0;
   uint32_t sharePct = galaxy ? (uint32_t)((p.playerCount * 100ULL) / galaxy) : 0U;
   if (sharePct > 100) sharePct = 100;
-  snprintf(share, sizeof(share), "%u%%", (unsigned)sharePct);
-  snprintf(here, sizeof(here), "%s", formatCount(p.playerCount).c_str());
-  if (haveRate) snprintf(push, sizeof(push), "%.3f%%", pushPctPerHour);
-  else          snprintf(push, sizeof(push), "--");
-  snprintf(regen, sizeof(regen), "%.2f%%", regenPctPerHour);
+  // Every column here is read off the planet record, so without one they are
+  // all unknown rather than zero — and a count-style card is drawn from the
+  // assignment payload alone, which makes "no planet, real progress" a routine
+  // state rather than a broken one. "0 DIVERS / 0.00% REGEN" under a bar that
+  // is visibly moving reads as a contradiction; "--" is what the PUSH column
+  // has always said when it had nothing to report, so say it four times over.
+  if (p.valid) {
+    snprintf(share, sizeof(share), "%u%%", (unsigned)sharePct);
+    snprintf(here, sizeof(here), "%s", formatCount(p.playerCount).c_str());
+    if (haveRate) snprintf(push, sizeof(push), "%.3f%%", pushPctPerHour);
+    else          snprintf(push, sizeof(push), "--");
+    snprintf(regen, sizeof(regen), "%.2f%%", regenPctPerHour);
+  } else {
+    snprintf(share, sizeof(share), "--");
+    snprintf(here, sizeof(here), "--");
+    snprintf(push, sizeof(push), "--");
+    snprintf(regen, sizeof(regen), "--");
+  }
 
   const int16_t colW = contentW / stripCols;
   // "/H" on the two rates because they are per-hour and the values carry only
@@ -923,13 +999,28 @@ void HUDRenderer::drawCard(const HudModel &m) {
       p.event.active ? factionAccent(p.event.faction) : theme::gold;
   const CardRates r = cardRates(m, _pageIdx, *t);
 
-  // The headline is whatever this objective is honestly measured by: a
-  // defence by how much of it is held, a liberation by how much is taken, and
-  // anything else by the one thing the API is unambiguous about.
+  const CardRates cr = countRate(m, _pageIdx, *t);
+
+  // The headline is whatever this objective is honestly measured by: a count
+  // by how far through its own goal it is, a defence by how much of it is
+  // held, a liberation by how much is taken, and anything else by the one
+  // thing the API is unambiguous about.
+  //
+  // The count case is tested first, and without consulting the planet at all.
+  // Its progress comes from the assignment payload, so it is the one figure
+  // still available when /planets/{index} 404s — the state that used to leave
+  // this card reading "UNKNOWN / OBJECTIVE COMPLETE / AWAITING TELEMETRY" for
+  // an objective that was in fact a fifth of the way in. It also outranks a
+  // defence running on the same planet: the order asks for the count, and
+  // that is what the card is reporting against.
   String headline;
   uint16_t headlineColor = theme::gold;
   char buf[32];
-  if (p.valid && p.event.active) {
+  if (taskIsCount(*t)) {
+    const StatusLine st = objectiveStatus(*t);
+    headline = st.text;
+    headlineColor = st.color;
+  } else if (p.valid && p.event.active) {
     snprintf(buf, sizeof(buf), "%.0f%% DEFENDED", p.event.defended());
     headline = buf;
   } else if (p.valid && taskIsLiberation(t->taskType)) {
@@ -941,14 +1032,42 @@ void HUDRenderer::drawCard(const HudModel &m) {
     headlineColor = st.color;
   }
 
-  drawArtBand(p, artOrderH, headline, headlineColor, upper(m.order.title));
+  // With no planet record there is still something true to put in the identity
+  // line. Naming the index says which planet the API has no entry for, which
+  // is a fact; "UNKNOWN" reads as a fault in the device. A count task with no
+  // planet slot at all is genuinely galaxy-wide and says so.
+  String fallbackName;
+  if (!p.valid) {
+    if (t->planetIndex >= 0) fallbackName = String(F("PLANET ")) + String(t->planetIndex);
+    else if (taskIsCount(*t)) fallbackName = F("GALAXY-WIDE");
+  }
+
+  drawArtBand(p, artOrderH, headline, headlineColor, upper(m.order.title), fallbackName);
 
   // Cleared as one band whichever way it is about to be filled: a one-track
   // card following a two-track one would otherwise leave the second bar
   // stranded on screen, and the two layouts do not share row positions.
   _tft.fillRect(cardX, orderCap1Y, cardW, orderBandEnd - orderCap1Y, theme::bg);
 
-  if (p.valid && p.event.active) {
+  if (taskIsCount(*t)) {
+    // The liberation bar's language, against the task's own goal instead of a
+    // planet's health: caption names what is being counted and carries the
+    // running total, readout gives the percentage and the rate it is moving
+    // at. formatCompact keeps "241.2M / 1.3B" inside the caption's half-width
+    // where the raw figures would run past it by a mile.
+    //
+    // Drawn from the assignment payload alone — no p.valid test anywhere in
+    // here — because a planet lookup that fails must cost the card its
+    // artwork and stat strip, not its progress.
+    const CountWords w = countWords(t->taskType);
+    const float pct = taskPercent(*t);
+    String caption = String(w.track) + F("  ") + formatCompact(t->progress) +
+                     F(" / ") + formatCompact(t->goal);
+    drawBarRow(orderSoloCapY, orderSoloBarY, campBarH, caption,
+               rateReadout(pct, cr.have, cr.pct),
+               t->complete ? theme::green : theme::blue, pct,
+               t->complete ? theme::green : theme::blue);
+  } else if (p.valid && p.event.active) {
     // A defence is a tug of war over one bar: our share and theirs. The API
     // publishes only the pair, so the second bar is the first's complement —
     // and its rate is therefore the mirror of the first's, not a second
@@ -966,7 +1085,10 @@ void HUDRenderer::drawCard(const HudModel &m) {
                theme::blue);
   } else {
     // A defend objective with nothing attacking it has no progress to show:
-    // the planet sits at full health, which is not "0% done".
+    // the planet sits at full health, which is not "0% done". Now a genuine
+    // last resort — every objective that carries a goal of its own is drawn as
+    // a real bar above, so reaching here means the task offered no measurable
+    // progress at all, not merely that it was an unfamiliar type.
     drawIdleTrack(orderSoloCapY, orderSoloBarY, campBarH,
                   p.valid ? String(F("NO ASSAULT IN PROGRESS"))
                           : String(F("AWAITING TELEMETRY")));
@@ -1045,7 +1167,11 @@ void HUDRenderer::drawBody(const HudModel &m, time_t nowUtc) {
       const bool defending =
           t && ((t->taskType == kTaskTypeDefend) || t->planet.event.active);
       const bool liberating = t && taskIsLiberation(t->taskType);
-      type = defending ? F("DEFENSE") : (liberating ? F("LIBERATION") : F("OBJECTIVE"));
+      // Same precedence the card body uses: a count objective names itself
+      // even when its planet happens to be under attack, because the count is
+      // what the order is asking for.
+      if (t && taskIsCount(*t)) type = countWords(t->taskType).header;
+      else type = defending ? F("DEFENSE") : (liberating ? F("LIBERATION") : F("OBJECTIVE"));
     } else if (onCampaign) {
       type = F("LIBERATION");
     }
@@ -1222,7 +1348,224 @@ void HUDRenderer::updateCarousel(const HudModel &m) {
   }
 }
 
+void HUDRenderer::advancePage(const HudModel &m, int8_t delta) {
+  const uint8_t count = pageCount(m);
+  if (count == 0) return;
+
+  // Wrap in both directions. `delta` is +/-1 from a swipe, but the modulo is
+  // written to survive any value rather than assuming that.
+  int16_t next = (int16_t)_pageIdx + delta;
+  while (next < 0) next += count;
+  _pageIdx = (uint8_t)(next % count);
+
+  // Restarting the dwell is the whole point of doing this here rather than
+  // poking _pageIdx from outside: a manual advance that still expired on the
+  // old schedule would page again a moment later, undoing the thing that was
+  // just asked for. Cody's explicit decision is that the timer stays as a
+  // fallback -- so it keeps running, it just starts counting again from now.
+  _pageSwitchMs = millis();
+}
+
+void HUDRenderer::resetCarousel() {
+  _pageIdx = 0;
+  _pageSwitchMs = millis();
+}
+
+// ---------------------------------------------------------------------------
+//  Event overlays
+// ---------------------------------------------------------------------------
+
+// Greedy word wrap into `out`, at most `maxLines` lines of `maxW` pixels in
+// whatever font is currently selected. Returns how many lines were used.
+//
+// A word longer than the line is hard-broken rather than dropped: order titles
+// are written by a game studio, not by this renderer, and one unbroken
+// 40-character string should not blank a screen. The last line is ellipsed if
+// there is more text than room, so a truncated briefing looks truncated rather
+// than finished.
+int8_t HUDRenderer::wrapText(const String &s, int16_t maxW, int8_t maxLines,
+                             String *out) {
+  int8_t used = 0;
+  int idx = 0;
+  const int len = s.length();
+
+  while (idx < len && used < maxLines) {
+    while (idx < len && s[idx] == ' ') idx++;  // eat run-on spaces
+    if (idx >= len) break;
+
+    int fit = idx;      // one past the last character known to fit
+    int lastSpace = -1; // last space seen inside that run
+    while (fit < len) {
+      if (s[fit] == '\n') break;
+      const String probe = s.substring(idx, fit + 1);
+      if (_tft.textWidth(probe.c_str()) > maxW) break;
+      if (s[fit] == ' ') lastSpace = fit;
+      fit++;
+    }
+
+    int end = fit;
+    if (fit < len && s[fit] != '\n' && lastSpace > idx) end = lastSpace;
+    if (end <= idx) end = idx + 1;  // hard break: nothing fit, take one char
+
+    out[used] = s.substring(idx, end);
+    out[used].trim();
+    used++;
+    idx = end;
+    if (idx < len && s[idx] == '\n') idx++;
+  }
+
+  // Anything left over is signalled on the final line rather than silently
+  // dropped.
+  if (idx < len && used > 0) {
+    String &tail = out[used - 1];
+    while (tail.length() > 1 &&
+           _tft.textWidth((tail + "...").c_str()) > maxW)
+      tail.remove(tail.length() - 1);
+    tail += "...";
+  }
+  return used;
+}
+
+void HUDRenderer::drawOverlay(const HudModel &m, time_t nowUtc) {
+  (void)nowUtc;
+  const MajorOrder &o = m.overlaySubject;
+  const bool verdict = (m.overlay == kOverlaySuccess || m.overlay == kOverlayFailure);
+  const uint16_t accent = m.overlay == kOverlaySuccess  ? theme::green
+                          : m.overlay == kOverlayFailure ? theme::red
+                                                         : theme::gold;
+
+  _tft.fillScreen(theme::bg);
+
+  // A verdict gets a band of its own colour across the full width; an
+  // announcement gets the HUD's ordinary gold frame. That difference is the
+  // fastest thing to read from across a room -- the colour says what happened
+  // before any of the words have been.
+  const int16_t bandY = layout::frameY + 26;
+  const int16_t bandH = verdict ? 76 : 54;
+  if (verdict) {
+    _tft.fillRect(0, bandY, layout::screenW, bandH, accent);
+  } else {
+    _tft.fillRect(0, bandY, layout::screenW, bandH, theme::panel);
+    _tft.drawFastHLine(0, bandY, layout::screenW, theme::goldDim);
+    _tft.drawFastHLine(0, bandY + bandH - 1, layout::screenW, theme::goldDim);
+  }
+
+  drawFrame();
+
+  // --- the banner word -----------------------------------------------------
+  const char *word = m.overlay == kOverlaySuccess    ? "ORDER COMPLETE"
+                     : m.overlay == kOverlayFailure  ? "ORDER FAILED"
+                                                     : "NEW MAJOR ORDER";
+  _tft.setFreeFont(verdict ? FONT_HEADLINE : FONT_HEADLINE_SM);
+  _tft.setTextDatum(MC_DATUM);
+  // Ink on the band, not a tint of it: a verdict's band is a saturated fill
+  // and mid-tone text on it is the one thing that would be unreadable at a
+  // glance, which is the entire job of this screen.
+  _tft.setTextColor(verdict ? theme::bg : accent, verdict ? accent : theme::panel);
+  _tft.drawString(word, layout::screenW / 2, bandY + bandH / 2);
+
+  // --- the text block ------------------------------------------------------
+  //
+  // Both halves are wrapped before either is drawn, so the whole block can be
+  // centred in the space the band and the dismiss line leave between them.
+  // Top-aligning it is what the layout did first, and a verdict -- which is
+  // only ever two or three short lines -- ended up in the top third of the
+  // panel with half a screen of nothing under it.
+  const int16_t textW = layout::frameW - 2 * layout::padX;
+  const int16_t textX = layout::screenW / 2;
+  const int16_t dismissY = layout::screenH - layout::frameY - 22;
+
+  String titleLines[2];
+  _tft.setFreeFont(FONT_VALUE);
+  const String title = o.title.length() ? o.title : String(F("MAJOR ORDER"));
+  const int8_t titleN = wrapText(title, textW, 2, titleLines);
+
+  // An announcement leads with the briefing, because that is the thing being
+  // announced. A verdict does not repeat it: the order is over, and what is
+  // worth saying is how it ended and what it paid.
+  String bodyLines[4];
+  int8_t bodyN = 0;
+  int8_t goldLine = -1;  // index into bodyLines that is a reward, not prose
+  _tft.setFreeFont(FONT_BODY);
+  if (!verdict) {
+    bodyN = wrapText(o.briefing, textW, 4, bodyLines);
+  } else {
+    // How far each objective got. On a success this is a formality; on a
+    // failure it is the only place a near miss is visible at all, and "3 of 4
+    // objectives met" is a materially different evening from "0 of 4".
+    if (o.taskCount > 0) {
+      int done = 0;
+      for (int i = 0; i < o.taskCount; i++)
+        if (o.tasks[i].complete) done++;
+      char summary[64];
+      snprintf(summary, sizeof(summary), "%d of %d objectives met", done, o.taskCount);
+      bodyLines[bodyN++] = summary;
+    }
+    if (m.overlay == kOverlaySuccess && o.rewardAmount > 0) {
+      char reward[48];
+      snprintf(reward, sizeof(reward), "%d MEDALS AWARDED", (int)o.rewardAmount);
+      goldLine = bodyN;
+      bodyLines[bodyN++] = reward;
+    }
+  }
+
+  const int16_t titleLead = 24;
+  const int16_t bodyLead = verdict ? 22 : 19;
+  const int16_t gap = 8;
+  const int16_t blockH = titleN * titleLead + (bodyN ? gap + bodyN * bodyLead : 0);
+
+  const int16_t areaTop = bandY + bandH;
+  const int16_t areaBottom = dismissY - 18;  // air above the dismiss line
+  int16_t y = areaTop + ((areaBottom - areaTop) - blockH) / 2;
+  // A four-line briefing can be taller than the space; let it start just under
+  // the band and run long rather than creeping up over it.
+  if (y < areaTop + 14) y = areaTop + 14;
+
+  _tft.setFreeFont(FONT_VALUE);
+  _tft.setTextColor(theme::text, theme::bg);
+  for (int8_t i = 0; i < titleN; i++) {
+    _tft.drawString(titleLines[i], textX, y + titleLead / 2);
+    y += titleLead;
+  }
+  if (bodyN) y += gap;
+
+  _tft.setFreeFont(FONT_BODY);
+  for (int8_t i = 0; i < bodyN; i++) {
+    _tft.setTextColor(i == goldLine ? theme::gold : theme::grey, theme::bg);
+    _tft.drawString(bodyLines[i], textX, y + bodyLead / 2);
+    y += bodyLead;
+  }
+
+  // --- the way out ---------------------------------------------------------
+  //
+  // Named explicitly because this screen has taken over the panel and there is
+  // no other affordance on it. The wording covers the fallback too: the timer
+  // exists so a dead panel cannot strand the HUD here, and someone reading
+  // this should not be left wondering whether anything will ever move again.
+  _tft.setFreeFont(FONT_LABEL);
+  _tft.setTextColor(theme::goldMute, theme::bg);
+  _tft.drawString(F("TOUCH TO DISMISS"), layout::screenW / 2, dismissY);
+  _tft.setTextDatum(TL_DATUM);
+}
+
 void HUDRenderer::update(const HudModel &m, time_t nowUtc) {
+  // An overlay owns the panel outright: no chrome, no carousel, no clocks.
+  // Repainted only when the announcement itself changes, so the screen is
+  // static while it waits to be acknowledged.
+  if (m.overlay != kOverlayNone) {
+    const String sig = String((int)m.overlay) + "|" + String((int)m.overlaySubject.id);
+    if (sig != _overlaySig) {
+      _overlaySig = sig;
+      drawOverlay(m, nowUtc);
+    }
+    return;
+  }
+  // Leaving an overlay means everything underneath it has been painted over.
+  if (_overlaySig.length()) {
+    _overlaySig = "";
+    invalidate();
+  }
+
   if (!_chromeDrawn) {
     _tft.fillScreen(theme::bg);
     drawFrame();

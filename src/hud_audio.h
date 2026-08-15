@@ -44,4 +44,21 @@ void tone(uint16_t freqHz, uint16_t durationMs);
 // a no-op if the data is null/empty. `len` is in samples (== bytes).
 void playPcm8(const uint8_t *pcm, size_t len, uint32_t sampleRateHz);
 
+// --- streaming ------------------------------------------------------------
+//
+// The same playback path for a clip that is not all in memory at once, which
+// is what a WAV read off the SD card is: the file is walked a block at a time
+// and handed over sample by sample. playPcm8() above is itself written in
+// terms of these, so there is one sample clock and one amp-gating rule rather
+// than two that can drift apart.
+//
+// Call in order — beginStream, writeSample per sample, endStream — and do not
+// interleave two streams; there is a single clock and a single amp. The amp is
+// unmuted for the whole run, so a caller that stalls between samples leaves it
+// on: keep the fetch between writeSample() calls short. See the block-size
+// note in hud_storage.cpp for how the SD reader stays inside that budget.
+void beginStream(uint32_t sampleRateHz);
+void writeSample(uint8_t sample);
+void endStream();
+
 }  // namespace audio

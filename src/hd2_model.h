@@ -181,8 +181,20 @@ struct PlanetInfo {
 // nothing is attacking it, so the same formula reads "0% liberated" for a
 // planet that is in fact fully secured. Defend success is binary, per the
 // task's own progress entry.
-static const int32_t kTaskTypeLiberate = 11;  // take/hold a planet
-static const int32_t kTaskTypeDefend = 13;    // defend a planet against attacks
+//
+// The count-style types below are the other family: their progress is a
+// running total against a goal the task carries itself, and it has nothing to
+// do with the planet's health. Confirmed against a live order on 2026-08-15
+// (assignment 3979642198, "complete operations / eliminate enemies / harvest
+// samples"), which carried one of each. They *are* planet-scoped — every one
+// of those three tasks named a planet — so do not assume a count implies a
+// galaxy-wide objective; see taskIsCount() for why the goal, not the type
+// code, is what the renderer actually branches on.
+static const int32_t kTaskTypeExtract = 2;     // extract N samples
+static const int32_t kTaskTypeEradicate = 3;   // kill N enemies
+static const int32_t kTaskTypeOperations = 9;  // complete N operations
+static const int32_t kTaskTypeLiberate = 11;   // take/hold a planet
+static const int32_t kTaskTypeDefend = 13;     // defend a planet against attacks
 
 // Only a liberate-style task may be drawn as a liberation bar.
 inline bool taskIsLiberation(int32_t taskType) {
@@ -195,14 +207,46 @@ struct OrderTask {
   bool valid = false;
   int32_t taskType = -1;    // raw `type` field from the API
   int32_t planetIndex = -1; // -1 if the task has no planet-index slot
-  // progress[i] > 0. Binary for planet-scoped tasks; for a count-style task
-  // (e.g. "kill 500M Terminids") the API's progress is a running total, so
-  // this only means "has started" — such tasks are not planet-scoped and the
-  // renderer does not claim a status for them.
+  // The task's entry in the order's parallel `progress` array, raw. For a
+  // planet-scoped liberate/defend this is 0 or 1; for a count-style task it is
+  // a running total ("241192325 of 1250000000 enemies killed").
+  uint64_t progress = 0;
+  // The task's own goal, from its valueType-3 slot. 1 for the binary types,
+  // the target count for a count-style task, 0 if the task carried no such
+  // slot at all. 64-bit because kill goals have reached 1.25 *billion*, which
+  // is already over half of what an int32 can hold.
+  uint64_t goal = 0;
+  // Derived, not read: `progress >= goal` where there is a goal to compare
+  // against. Reading this straight off `progress > 0` — as this did before —
+  // is what made a kill task 19% of the way in announce itself as
+  // "OBJECTIVE COMPLETE".
   bool complete = false;
   // Filled in after the fact by the poll loop, from GET /planets/{index}.
+  // May stay invalid on a perfectly healthy task: the community API 404s
+  // /planets/{index} for indices missing from its own static table, which is
+  // exactly what happens for the first days of a war's newly-added planets.
+  // Nothing that can be drawn from the assignment payload alone may be gated
+  // on this.
   PlanetInfo planet;
 };
+
+// A count-style objective, decided by data shape rather than by type code: a
+// goal above 1 can only be a running total, whatever the type says. The
+// community API's own repo documents valueTypes as "a list of numbers, purpose
+// unknown" and Arrowhead has reshuffled task encodings before, so keying the
+// *rendering* decision off the goal keeps a brand-new count type rendering
+// correctly on day one. The named type codes above are used only to caption
+// what is being counted, where being wrong costs a word, not a progress bar.
+inline bool taskIsCount(const OrderTask &t) { return t.goal > 1; }
+
+// A count task's completion, 0..100. Clamped at the top because the API keeps
+// counting past the goal on eradicate objectives (the war does not stop the
+// instant the target is met) and a 104%-full bar reads as a rendering fault.
+inline float taskPercent(const OrderTask &t) {
+  if (t.goal == 0) return 0.0f;
+  const double pct = (double)t.progress * 100.0 / (double)t.goal;
+  return pct > 100.0 ? 100.0f : (float)pct;
+}
 
 // Headroom over the largest order seen in the wild (three targets).
 static const int kMaxOrderTasks = 4;
@@ -249,6 +293,17 @@ struct RateSample {
   // starts on the same planet the health pair restarts from scratch, and
   // diffing across that reset would report a huge fictitious swing.
   time_t eventEnd = 0;
+
+  // A count-style task's completion at `countAt`, kept apart from the
+  // planet-derived fields above and carrying its own timestamp on purpose.
+  // Count progress rides in on the assignments payload itself, so it is
+  // available on every successful poll — including the ones where the task's
+  // planet 404s and every field above is reset. Sharing `at`/`planetIndex`
+  // with them would throw this away on exactly the orders that most need a
+  // rate, since a planet the API cannot resolve fails on every poll, not one.
+  bool haveCount = false;
+  time_t countAt = 0;        // UTC epoch of the poll countPct was read from
+  float countPct = 0.0f;     // task completion, 0..100
 };
 
 // Percentage points per hour between two samples, or false when the pair can't
@@ -266,9 +321,37 @@ inline bool ratePerHour(float nowPct, time_t nowAt, float prevPct, time_t prevAt
 }
 
 // Everything the renderer needs for one frame.
+// --- Event overlays ---------------------------------------------------------
+//
+// Full-screen announcements that take the panel away from the carousel until
+// they are acknowledged. There are two kinds and they read differently on
+// purpose: an announcement is "here is what you have been asked to do", a
+// verdict is "here is how it went".
+//
+// The API has no event stream and no outcome field -- a Major Order that ends
+// simply stops appearing in GET /api/v1/assignments -- so all three of these
+// are inferred by the poll loop from what changed between two polls. See
+// classifyOrderOutcome() in main.cpp for the rules and their one genuine
+// ambiguity.
+enum OverlayKind : uint8_t {
+  kOverlayNone = 0,
+  kOverlayNewOrder,  // an assignment id this device has not seen before
+  kOverlaySuccess,   // left the feed with every task complete
+  kOverlayFailure,   // left the feed incomplete, or ran out of time
+};
+
 struct HudModel {
   MajorOrder order;
   WarStats war;
+
+  // The announcement currently owning the screen, and what it is about.
+  //
+  // `overlaySubject` is a copy rather than a reference into `order` because a
+  // verdict outlives its order by definition: by the time SUCCESS is drawn the
+  // assignment has already left the feed and `order` holds the next one, or
+  // nothing at all.
+  OverlayKind overlay = kOverlayNone;
+  MajorOrder overlaySubject;
 
   // Previous poll's progress, one slot per order task. Written by the poll
   // loop before it overwrites `order`, and wiped whenever the Major Order id

@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+#  Partition table — HD2 desk monitor, 4MB ESP32.
+#
+#  Replaces min_spiffs.csv, which platformio.ini had been using for its two
+#  equal OTA slots. That table also carves out a 128KB spiffs partition this
+#  project has never mounted: all compiled-in art is PROGMEM, and everything
+#  added since is on the SD card (see src/hud_storage.h), so a flash
+#  filesystem has no remaining reason to exist here. Reclaiming it buys 64KB
+#  for *each* app slot, which is what the SD/FAT stack, touch and the two
+#  overlay screens are spent on.
+#
+#  Both app slots must stay the same size: OTA downloads into the inactive one
+#  and only flips the boot pointer once a whole image has landed, so a slot
+#  that cannot hold a full image is a slot that can never be updated into.
+#
+#  >>> UPGRADING A UNIT ALREADY IN THE FIELD <<<
+#  An OTA writes the app slot and nothing else — the partition table lives at
+#  0x8000 and is only rewritten by a full USB flash. A device running the old
+#  min_spiffs layout therefore keeps its 0x1E0000 slots until it is reflashed
+#  over USB once. That is fine while the image still fits the old slot
+#  (1,966,080 bytes) and the OTA fails safely if it does not, but it does mean
+#  the headroom below is only real on a USB-flashed unit. README's "OTA
+#  updates" section carries the same warning next to the release steps.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xE000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x1F0000,
+app1,       app,  ota_1,    0x200000, 0x1F0000,
+coredump,   data, coredump, 0x3F0000, 0x10000,

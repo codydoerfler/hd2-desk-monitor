@@ -8,16 +8,21 @@ prior chat history. Read this, then README.md for full technical detail.
 
 A standalone desk display that shows the live Helldivers 2 Major Order
 (target planet, liberation %, time remaining, player counts) on a small
-ESP32-driven color LCD. Read-only, no touch/buttons, WiFi + USB-C powered.
-Polls the community API at api.helldivers2.dev every 5 minutes and renders
-a Super Earth command-terminal style HUD.
+ESP32-driven color LCD. No buttons; touch is swipe-to-page and tap-to-dismiss
+only. WiFi + USB-C powered. Polls the community API at api.helldivers2.dev
+every 5 minutes and renders a Super Earth command-terminal style HUD.
 
 Cards are art-led: the biome plate fills the upper half with the planet's
 identity set over it, progress tracks beneath, a four-value stat strip, then
 the footer. An active Major Order owns the screen (its targets are the only
 carousel pages); with no order, the five busiest liberation campaigns take
-over. Pages advance on a 7s timer. It also drives the board's speaker on a
-new Major Order and after an OTA update.
+over. Pages advance on a 7s timer, or on a swipe (which restarts the timer).
+
+Two events take the whole panel: a new Major Order arriving, and the verdict
+when one ends. They interrupt the carousel and stay up until tapped, with a
+one-poll-interval timeout so a dead panel cannot strand the HUD on them. It
+also drives the board's speaker on all three of those events and after an OTA
+update, from SD-card clips where a card is present.
 
 ## Where it lives
 
@@ -28,9 +33,11 @@ new Major Order and after an OTA update.
 - Board: PlatformIO project, env `hosyond-esp32-32e`.
 - Hardware: Hosyond 4.0" ESP32-32E display module (LCDwiki E32R40T),
   ESP32-D0WD-V3, ST7796S panel, 480x320 landscape, no PSRAM, 4MB flash.
-  XPT2046 touch is wired but unused -- swipe navigation was built and
-  reverted (calibration would not hold on this panel), so the carousel is
-  timed. Audio: GPIO26 internal DAC -> FM8002E amp, GPIO4 enable (active low).
+  XPT2046 touch on the panel's HSPI bus (CS 33, PEN/IRQ on IO36, unused).
+  Audio: GPIO26 internal DAC -> FM8002E amp, GPIO4 enable (active low).
+  There is an onboard MicroSD slot on the *other* SPI peripheral (VSPI: SCK
+  18, MISO 19, MOSI 23, CS 5) -- no wiring needed, and no contention with the
+  display, which owns HSPI. Optional at runtime; see README's SD card section.
 
 ## Source layout
 
@@ -39,12 +46,26 @@ new Major Order and after an OTA update.
 - `src/hd2_model.h` — data model for assignments/war/planets.
 - `src/hud_renderer.cpp` / `.h` — all drawing code, the actual HUD layout
   (largest file). Screen states: order card, campaign card, idle, stale/
-  offline, boot. Both card types share drawArtBand()/drawStrip()/drawBarRow();
-  see the `Cards` block in config.h for the band geometry and why the art
-  height differs between them.
+  offline, boot, plus three full-screen event overlays (new order, order
+  complete, order failed). Both card types share drawArtBand()/drawStrip()/
+  drawBarRow(); see the `Cards` block in config.h for the band geometry and
+  why the art height differs between them. The overlays share none of it —
+  they take the raw panel, by design.
 - `src/hud_audio.cpp` / `.h` — the speaker. Amp enable + blocking 8-bit DAC
   playback; knows nothing about the model, same isolation the renderer keeps.
 - `src/hud_audio_clip.h` — generated 8kHz PCM clip (~30KB PROGMEM).
+- `src/hud_storage.cpp` / `.h` — the MicroSD slot. Mount, RIFF/WAVE parse,
+  block-streamed playback through hud_audio's stream API. Everything here is
+  best-effort: no card, or a missing file, is a logged note and nothing more.
+  New assets belong here rather than in PROGMEM — flash is the binding
+  constraint on this board and the card is not.
+- `src/hud_touch.cpp` / `.h` — the XPT2046. Borrows TFT_eSPI's instance for
+  bus arbitration and raw conversions, and replaces its validation layer:
+  TFT_eSPI's validTouch() demands two samples agree within 20 ADC counts,
+  which is a stationarity test a moving finger cannot pass, and is the actual
+  reason the earlier attempt read as "calibration will not hold". Produces
+  tap/swipe-left/swipe-right; calibration (four corner targets) is stored in
+  NVS and entered by holding the panel while powering on.
 - `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
   tiles, crest/skull mark, shield icon, hazard chips, etc).
 - `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
@@ -65,11 +86,13 @@ new Major Order and after an OTA update.
 
 `tools/preview.sh` compiles the firmware's own renderer on the host (not the
 ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
-to check a layout/art change before flashing real hardware. Current preview
-outputs sit at repo root: `preview_boot.png`, `preview_idle.png`,
-`preview_liberation.png`, `preview_defense.png`, `preview_invasion.png`,
-`preview_stale.png`, `preview_campaign.png`. Regenerate after any
-renderer/icon change and look at them before calling a visual change done.
+to check a layout/art change before flashing real hardware. Scenes: `boot`,
+`idle`, `liberation`, `defense`, `invasion`, `stale`, `campaign`, `count`,
+`extraction`, `neworder`, `success`, `failure`. Outputs land at repo root as
+`preview_<scene>.png` and are **gitignored there**; the reviewed copies a PR
+is read against live in `docs/`, so copy them across after regenerating.
+Regenerate after any renderer/icon change and look at them before calling a
+visual change done.
 
 There is also `docs/icon-audit/` — a standalone HTML report
 (`icon_audit.html`) that lays out every icon/mark in the project at a
@@ -100,7 +123,35 @@ Icon/art generator scripts (Python, in `tools/`):
 ## Current state (as of last commit, see `git log`)
 
 Run `git log --oneline -10` for the authoritative recent history. The most
-recent work (v1.1.0) was a card redesign plus audio:
+recent work (branch `touch-and-events`) added touch, SD audio and the event
+screens:
+
+- **Count-style order tasks show real progress.** Eradicate/extract-style
+  tasks measure a raw count, not a planet's health, so the card's bar was
+  reading empty on them. Progress is now taken from the task's own
+  progress/goal pair, and it survives the planet lookup 404ing — which is the
+  normal state for a planet the community API's static table has not caught up
+  with, and exactly the case the bug was photographed in. Preview scenes
+  `count` and `extraction` cover both.
+- **SD card audio.** Optional; no wiring change was needed, the slot is on
+  VSPI and free. Three clips (`mo_new`, `mo_success`, `mo_failure`) built by
+  `tools/gen_sd_assets.py` into `sdcard/audio/`. No card falls back to the
+  compiled-in clip for all three.
+- **Touch works, and the earlier diagnosis was wrong.** It was not the
+  panel's calibration: TFT_eSPI's validTouch() requires two successive samples
+  to agree within 20 ADC counts, a stationarity test a moving finger cannot
+  pass, so most of a swipe is discarded and taps land wherever the finger
+  happened to pause. `hud_touch.cpp` replaces that layer. **NOT YET VERIFIED
+  ON HARDWARE** — written against the datasheet and the verified E32R40T
+  pinout, with the reasoning documented in `hud_touch.h`. First flash should
+  hold the panel at boot to run the diagnostics dump and calibrate.
+- **Event screens** for a new order and for the verdict when one ends. The
+  API has no outcome field and no history endpoint, so the verdict is inferred
+  from the last state seen before the order left the feed — see
+  `classifyOrderOutcome()` in main.cpp, and note that completion is tested
+  *before* the deadline on purpose.
+
+Before that (v1.1.0) was a card redesign plus audio:
 
 - **Cards rebuilt around the artwork.** The biome plate now fills the upper
   half with the planet's identity set *over* it (left-side scrim for
@@ -115,10 +166,11 @@ recent work (v1.1.0) was a card redesign plus audio:
   tasks when one is live and campaigns only when none is; the campaigns feed
   is not even fetched while an order runs. Don't "fix" this into a combined
   strip — it was tried and deliberately reverted.
-- **Touch was built and reverted.** Swipe navigation with on-device
-  calibration worked in principle but the XPT2046 calibration would not hold
-  on this panel; the carousel is timed (7s) instead. The implementation is in
-  git history if the panel is ever swapped.
+- **Touch was built and reverted here**, on the conclusion that the XPT2046
+  calibration would not hold, and the carousel was timed (7s) instead. That
+  diagnosis was wrong and the work is back — see the branch notes above. Note
+  that attempt was never committed: this file used to say the implementation
+  was in git history, and it is not. Don't go looking for it.
 - **Audio** on a new Major Order and after an OTA — see `hud_audio.*` above
   and the README's Audio section for the trigger rules (both are gated so a
   reboot doesn't replay them).
