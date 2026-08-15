@@ -207,6 +207,36 @@ static void rollRateHistory(const MajorOrder &next) {
     h.eventPct = prev->event.defended();
     h.eventEnd = prev->event.endTime;
   }
+
+  // Count-style progress, written after the loop above rather than inside it,
+  // and that ordering is the whole point: that loop wipes a sample outright
+  // whenever a task's planet cannot be resolved, and a count objective's
+  // progress has to outlive exactly that case. It arrives with the assignments
+  // payload, so every successful poll has it — while a planet the API holds no
+  // record of (it 404s indices missing from its static table, which is the
+  // normal state of a newly-added planet) fails on every poll, not one.
+  //
+  // The previous reading is model.order's, taken at model.lastSuccess: neither
+  // has been overwritten yet, same as the planet pass above relies on.
+  for (int i = 0; i < kMaxOrderTasks; i++) {
+    RateSample &h = model.history[i];
+    h.haveCount = false;
+    h.countAt = 0;
+    h.countPct = 0.0f;
+
+    if (model.lastSuccess <= 0) continue;  // nothing polled yet: no baseline
+    if (i >= next.taskCount || i >= model.order.taskCount) continue;
+    // Both readings must be the same kind of count for the diff to mean
+    // anything -- a task edited in place, or a goal revised mid-order, would
+    // otherwise read as a jump in progress that never happened.
+    if (!taskIsCount(next.tasks[i]) || !taskIsCount(model.order.tasks[i])) continue;
+    if (next.tasks[i].taskType != model.order.tasks[i].taskType) continue;
+    if (next.tasks[i].goal != model.order.tasks[i].goal) continue;
+
+    h.haveCount = true;
+    h.countAt = model.lastSuccess;
+    h.countPct = taskPercent(model.order.tasks[i]);
+  }
 }
 
 // Same invariant as rollRateHistory() above — only advance a sample when the

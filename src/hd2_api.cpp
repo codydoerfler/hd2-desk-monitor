@@ -157,16 +157,24 @@ bool HD2Api::fetchMajorOrder(MajorOrder &out) {
   // silently drop every target but the first, so walk the whole array.
   //
   // Within a task, `values` and `valueTypes` are parallel arrays and the *type
-  // code* tells you what each slot means. 12 == planet index. Scanning
-  // valueTypes for 12 is deliberately more robust than indexing `values` by a
-  // fixed position, because slot ordering differs between task types (liberate
-  // / defend / kill-N-of-faction) and Arrowhead has reshuffled them before.
+  // code* tells you what each slot means. 12 == planet index, 3 == the goal
+  // this task's progress entry counts towards. Scanning valueTypes is
+  // deliberately more robust than indexing `values` by a fixed position,
+  // because slot ordering differs between task types (liberate / defend /
+  // kill-N-of-faction) and Arrowhead has reshuffled them before. The live
+  // order checked on 2026-08-15 proves the point on its own: the goal sat at
+  // index 1 in its first task and index 2 in the other two.
   // If no slot is tagged 12, the task isn't planet-scoped (e.g. a pure
   // "kill 500 million Terminids" order) and we render without a target card.
+  //
+  // A goal of 1 is the binary liberate/defend shape ("take this planet: 1");
+  // anything larger is a running total, which is what lets the renderer draw
+  // real progress for it. See taskIsCount() in hd2_model.h.
   //
   // The task's own `type` is kept raw: the renderer, not this layer, decides
   // what an unrecognised objective kind should look like.
   constexpr int kValueTypePlanetIndex = 12;
+  constexpr int kValueTypeGoal = 3;
 
   JsonArray tasks = a["tasks"].as<JsonArray>();
   JsonArray progress = a["progress"].as<JsonArray>();
@@ -188,18 +196,24 @@ bool HD2Api::fetchMajorOrder(MajorOrder &out) {
       JsonArray types = t["valueTypes"].as<JsonArray>();
       if (!values.isNull() && !types.isNull()) {
         const size_t m = min(values.size(), types.size());
+        // One pass for both slots rather than one each: neither is guaranteed
+        // to come first, and a task carrying only one of them is normal.
         for (size_t j = 0; j < m; j++) {
-          if ((int)types[j] == kValueTypePlanetIndex) {
-            ot.planetIndex = (int32_t)values[j];
-            break;
-          }
+          const int vt = (int)types[j];
+          if (vt == kValueTypePlanetIndex) ot.planetIndex = (int32_t)values[j];
+          else if (vt == kValueTypeGoal)   ot.goal = values[j].as<uint64_t>();
         }
       }
 
-      // For a planet-scoped task this is 0 or 1: held/taken, or not.
+      // 0 or 1 for a liberate/defend, a running total for a count-style task.
       if (!progress.isNull() && i < progress.size()) {
-        ot.complete = ((int)progress[i]) > 0;
+        ot.progress = progress[i].as<uint64_t>();
       }
+      // Completion has to be measured against the goal where there is one.
+      // Testing `progress > 0` alone — which is what this did — reports a kill
+      // task as complete the moment the first enemy dies, and that is what put
+      // "OBJECTIVE COMPLETE" on a card that was 19% of the way in.
+      ot.complete = ot.goal > 0 ? (ot.progress >= ot.goal) : (ot.progress > 0);
 
       ot.valid = true;
       out.taskCount++;

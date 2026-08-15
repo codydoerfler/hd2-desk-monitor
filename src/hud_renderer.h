@@ -83,8 +83,13 @@ class HUDRenderer {
                  uint8_t scrimMax = 0);
   // The art band: biome plate, the planet's name/sector/headline stat set over
   // it, and the faction mark. Shared by both card types.
+  // `fallbackName` is what stands in for the identity line when the planet
+  // record is missing — the community API 404s planets absent from its static
+  // table, so this is a routine state, not a fault. Empty falls back to
+  // "UNKNOWN", which is all a campaign card can honestly say.
   void drawArtBand(const PlanetInfo &p, int16_t h, const String &headline,
-                   uint16_t headlineColor, const String &orderTitle = String());
+                   uint16_t headlineColor, const String &orderTitle = String(),
+                   const String &fallbackName = String());
   // Text straight onto whatever is already drawn, with no background fill —
   // for the identity set over the biome plate.
   void drawOverText(int16_t x, int16_t y, int16_t h, const GFXfont *font, uint16_t fg,

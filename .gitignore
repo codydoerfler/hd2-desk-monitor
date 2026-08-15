@@ -15,5 +15,11 @@
 # macOS
 .DS_Store
 
-# Generated HUD previews (tools/preview.sh). docs/preview.png is tracked.
+# Generated HUD previews (tools/preview.sh) land in the project root as
+# scratch and are ignored there. The unanchored pattern matched at any depth
+# though, which also swallowed the docs/ copies both this rule and the one
+# above say are meant to be tracked -- hence the negation. docs/ holds the
+# reviewed set: the previews a PR is read against, so a layout change can be
+# looked at without flashing hardware.
 preview_*.png
+!docs/preview_*.png
