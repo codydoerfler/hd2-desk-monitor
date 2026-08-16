@@ -263,6 +263,16 @@ static HudModel sceneStale() {  // link down, last good data still on screen
   return m;
 }
 
+// A unit that came up without a calibration: same HUD, plus the footer hint
+// telling its owner how to get one. Shot on the defence scene because that is
+// the busiest footer -- a reward on the left and a sync clock on the right --
+// so if the hint is going to collide with either, it collides here.
+static HudModel sceneUncalibrated() {
+  HudModel m = sceneDefense();
+  m.touchUncalibrated = true;
+  return m;
+}
+
 // --- event overlays --------------------------------------------------------
 //
 // The three full-screen announcements. They ignore everything in the model
@@ -329,7 +339,7 @@ int main(int argc, char **argv) {
       {"count", sceneCount},       {"extraction", sceneExtraction},
       {"stale", sceneStale},
       {"neworder", sceneNewOrder}, {"success", sceneSuccess},
-      {"failure", sceneFailure},
+      {"failure", sceneFailure},   {"uncalibrated", sceneUncalibrated},
   };
 
   auto shoot = [&](const String &name, const HudModel &m) {
@@ -367,9 +377,20 @@ int main(int argc, char **argv) {
     printf("wrote preview_boot.png\n");
   };
 
+  // Neither does the first-boot calibration prompt. What this cannot shoot is
+  // the flow around it -- whether a genuinely empty NVS reaches this screen at
+  // all, and what a real finger does to it -- only the card itself.
+  auto shootTouchPrompt = [&]() {
+    hud.showTouchPrompt();
+    writePng("preview_touchprompt.png", tft.pixels(), tft.width(), tft.height(),
+             scale);
+    printf("wrote preview_touchprompt.png\n");
+  };
+
   if (argc > 1) {
     const String want = argv[1];
     if (want == "boot") { shootBoot(); return 0; }
+    if (want == "touchprompt") { shootTouchPrompt(); return 0; }
     if (want == "carousel") { shootAdvance(want, sceneCarousel()); return 0; }
     auto it = scenes.find(want);
     if (it == scenes.end()) { fprintf(stderr, "unknown scene: %s\n", argv[1]); return 1; }
@@ -378,6 +399,7 @@ int main(int argc, char **argv) {
   }
 
   shootBoot();
+  shootTouchPrompt();
   for (auto &kv : scenes) shoot(kv.first, kv.second());
   shootAdvance("carousel", sceneCarousel());
   return 0;

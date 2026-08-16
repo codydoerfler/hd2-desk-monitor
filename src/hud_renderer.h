@@ -30,6 +30,12 @@ class HUDRenderer {
   // Full-screen status pages used before the HUD has data.
   void showBoot(const char *status);
   void showPortal(const char *ssid, const char *pass);
+  // The first-boot calibration prompt: a gold warning card asking to be
+  // touched, drawn from touch_calibration_reference.jpg. Shown once on a unit
+  // that has never been calibrated, and left up while main.cpp waits for a
+  // contact -- touching it is what starts touch::calibrate(), which paints its
+  // own four-corner chrome over the top. See the card constants in config.h.
+  void showTouchPrompt();
 
   // Paints `m`, repainting only what changed. `nowUtc` drives the clocks.
   void update(const HudModel &m, time_t nowUtc);
@@ -92,6 +98,12 @@ class HUDRenderer {
   void drawCampaignBody(const HudModel &m, const PlanetInfo &p, const RateSample &h);
   void drawWifi(bool up);
   void drawFooter(const HudModel &m, time_t nowUtc);
+  // Pieces of the first-boot calibration card, split out of showTouchPrompt()
+  // only because they are the two that are drawn rather than laid out: a
+  // reticle with a hand tapping its centre, and the diagonal hazard bar along
+  // the card's bottom edge.
+  void drawCalReticle(int16_t x, int16_t y, int16_t s);
+  void drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h);
   // A full-screen event announcement: the new-order dispatch, or a verdict on
   // one that has ended. Takes the whole panel — no frame chrome, no carousel,
   // no clocks — because it is meant to interrupt, and stays up until it is

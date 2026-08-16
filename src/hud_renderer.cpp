@@ -162,6 +162,15 @@ static String sectorLabel(const String &sector) {
 // also keeps a drop from 120 to 45 from leaving the hundreds digit standing.
 static constexpr int16_t kRewardBoxW = 56;
 
+// The footer's reward block, end to end, and the gap it leaves before the sync
+// clock. That gap is where the uncalibrated-touch hint goes: it was left empty
+// deliberately when the footer was reworked, and this is a caption that earns
+// it -- a call to action that removes itself the moment it is acted on.
+// Derived rather than declared so it cannot drift from the block beside it.
+static constexpr int16_t kRewardBlockW = icons::medalW + footerIconGap + kRewardBoxW;
+static constexpr int16_t kHintX = cardX + kRewardBlockW;
+static constexpr int16_t kHintW = (contentR - syncBoxW) - kHintX;
+
 static String formatCount(uint32_t v) {
   char digits[16];
   snprintf(digits, sizeof(digits), "%lu", (unsigned long)v);
@@ -1390,7 +1399,8 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
     reward = String(m.order.rewardAmount);
   }
 
-  const String sig = synced + "|" + reward + "|" + (m.stale ? "1" : "0");
+  const String sig = synced + "|" + reward + "|" + (m.stale ? "1" : "0") + "|" +
+                     (m.touchUncalibrated ? "1" : "0");
   if (sig == _footerSig) return;
   _footerSig = sig;
 
@@ -1413,6 +1423,20 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
     _tft.drawBitmap(cardX, y + (h - icons::medalH) / 2, icons::medal, icons::medalW,
                     icons::medalH, theme::gold);
   }
+
+  // --- middle: the uncalibrated-touch hint ---------------------------------
+  // Painted unconditionally, with an empty string when there is nothing to say,
+  // so the frame calibration succeeds on is the frame the line disappears in --
+  // the box clears itself and, because calibrated() never goes back to false on
+  // its own, never comes back. theme::grey and the 6x8 face: the same weight as
+  // the sync time across from it, which is the right of way for a caption that
+  // is only addressed to a unit nobody has set up yet. Deliberately not
+  // goldMute -- gold at this size is what the reward beside it is using, and
+  // muted gold on this background was already found to be the least legible
+  // thing on the panel when the footer was reworked.
+  const String hint =
+      m.touchUncalibrated ? String(F("HOLD SCREEN AT POWER-ON TO CALIBRATE")) : String();
+  textBox(kHintX, y, kHintW, h, theme::bg, nullptr, theme::grey, MC_DATUM, hint);
 
   // --- right: last sync ----------------------------------------------------
   // The link state moved to the header row with the LIBCON chip, so this row
@@ -1759,5 +1783,215 @@ void HUDRenderer::showPortal(const char *ssid, const char *pass) {
 
   textBox(padX, 224, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
           F("If no page opens, browse to 192.168.4.1"));
+  _chromeDrawn = false;
+}
+
+// ---------------------------------------------------------------------------
+//  First-boot touch calibration prompt
+//
+//  The reference art is a photograph of a ship's bridge with a warning card
+//  over it. What is reproduced here is the card: the bands and their
+//  proportions, the badge, the reticle, the hazard bar. The photograph and the
+//  game's wordmark are not, deliberately -- see the note over the cal*
+//  constants in config.h.
+//
+//  Drawn from primitives rather than added to hud_icons.h. A 76px reticle as a
+//  1-bit bitmap is 722 bytes of an image already sitting at 96% of its flash
+//  slot, for a shape that is two circles and eight straight runs; the hazard
+//  bar could not be a bitmap at all without storing it at full width.
+// ---------------------------------------------------------------------------
+
+// A reticle with a hand tapping its centre, in an `s`-square box at (x,y).
+// Ring, four crosshair ticks through it, a small target at the middle, and a
+// bracket at each corner of the box -- the reference's own construction. The
+// hand comes in from the lower right at 45 degrees with the fingertip on the
+// centre dot, which is what makes it read as "put a finger here" rather than
+// as a target to be shot at; a hand standing upright in the middle of the ring
+// reads as a raised finger and nothing else.
+//
+// Sized in fractions of `s` only where the fraction is the point. The rest is
+// in pixels: this is one icon at one size, and naming a constant for the
+// fingertip's offset would suggest it means something elsewhere.
+void HUDRenderer::drawCalReticle(int16_t x, int16_t y, int16_t s) {
+  const int16_t cx = x + s / 2, cy = y + s / 2;
+  const int16_t r = s * 13 / 40;  // 29 at s=92, leaving the ticks room outside
+
+  // Three concentric circles: a 1px ring at this diameter is a dotted line by
+  // the time the panel's own subpixel structure has had it, and the reference's
+  // ring is heavy enough to carry the icon on its own.
+  for (int16_t i = 0; i < 3; i++) _tft.drawCircle(cx, cy, r - i, theme::gold);
+
+  // Crosshair ticks, crossing the ring rather than stopping outside it.
+  const int16_t t0 = r - 6, t1 = r + 9, tw = t1 - t0;
+  _tft.fillRect(cx - 1, cy - t1, 3, tw, theme::gold);
+  _tft.fillRect(cx - 1, cy + t0, 3, tw, theme::gold);
+  _tft.fillRect(cx - t1, cy - 1, tw, 3, theme::gold);
+  _tft.fillRect(cx + t0, cy - 1, tw, 3, theme::gold);
+
+  // The target at the middle, which is what the finger is pointing at.
+  _tft.drawCircle(cx, cy, 10, theme::gold);
+  _tft.drawCircle(cx, cy, 9, theme::gold);
+  _tft.fillCircle(cx, cy, 3, theme::gold);
+
+  // Corner brackets, 2px thick, drawn as pairs of runs -- there is no
+  // drawLine() here and none is needed for right angles.
+  //
+  // Three of them, not four: the hand comes in over the bottom-right corner
+  // and covers it, exactly as it does in the reference. Drawing one there and
+  // letting the hand's halo bite a piece out of it looks like damage.
+  const int16_t b = 15, x1 = x + s - 1, y1 = y + s - 1;
+  for (int16_t i = 0; i < 2; i++) {
+    _tft.drawFastHLine(x, y + i, b, theme::gold);
+    _tft.drawFastVLine(x + i, y, b, theme::gold);
+    _tft.drawFastHLine(x1 - b + 1, y + i, b, theme::gold);
+    _tft.drawFastVLine(x1 - i, y, b, theme::gold);
+    _tft.drawFastHLine(x, y1 - i, b, theme::gold);
+    _tft.drawFastVLine(x + i, y1 - b + 1, b, theme::gold);
+  }
+
+  // The hand, drawn twice: once in the card's own fill, three pixels proud all
+  // round, then in gold on top of that. The halo is not decoration -- the hand
+  // crosses the ring and the bottom-right bracket, and without a gap the three
+  // gold shapes merge into one blob. The reference solves the same problem by
+  // outlining the hand in black.
+  for (int8_t pass = 0; pass < 2; pass++) {
+    const uint16_t c = pass ? theme::gold : theme::panel;
+    const int16_t g = pass ? 0 : 2;
+
+    // Index finger: a bar at 45 degrees, from the centre dot down to the
+    // knuckles. Two triangles, because a quad is what four points make and
+    // there is no primitive for one.
+    const int16_t ax = cx - g, ay = cy + 4;
+    const int16_t bx = cx + 4, by = cy - g;
+    const int16_t px = cx + 22 + g, py = cy + 16;
+    const int16_t qx = cx + 16, qy = cy + 22 + g;
+    _tft.fillTriangle(ax, ay, bx, by, px, py, c);
+    _tft.fillTriangle(ax, ay, px, py, qx, qy, c);
+    _tft.fillCircle(cx + 2, cy + 2, 2 + g, c);  // rounded fingertip
+
+    // Folded fingers and palm: a rounded block below and right of that, and a
+    // thumb bump on the near side.
+    const int16_t hx = cx + 12 - g, hy = cy + 13 - g;
+    const int16_t hw = 25 + 2 * g, hh = 23 + 2 * g, hr = 6 + g;
+    _tft.fillRect(hx + hr, hy, hw - 2 * hr, hh, c);
+    _tft.fillRect(hx, hy + hr, hw, hh - 2 * hr, c);
+    _tft.fillCircle(hx + hr, hy + hr, hr, c);
+    _tft.fillCircle(hx + hw - hr - 1, hy + hr, hr, c);
+    _tft.fillCircle(hx + hr, hy + hh - hr - 1, hr, c);
+    _tft.fillCircle(hx + hw - hr - 1, hy + hh - hr - 1, hr, c);
+    _tft.fillCircle(cx + 10, cy + 31, 6 + g, c);
+  }
+}
+
+// The diagonal hazard bar along the card's bottom edge.
+//
+// Built as one horizontal run per row rather than as diagonal lines: at 45
+// degrees a stripe's start moves exactly one pixel per row, so the whole band
+// is a stack of offset runs -- which is both what the available primitives can
+// draw and faster than the general case would be.
+void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h) {
+  _tft.fillRect(x, y, w, h, theme::bg);
+  for (int16_t row = 0; row < h; row++) {
+    // Stripes lean up-and-to-the-right, so their start walks left as the row
+    // walks down. The modulo keeps the first one on screen for wide bars.
+    for (int16_t sx = -(row % calStripePitch) - calStripePitch; sx < w;
+         sx += calStripePitch) {
+      int16_t a = sx, b = sx + calStripeInk;
+      if (b <= 0 || a >= w) continue;
+      if (a < 0) a = 0;
+      if (b > w) b = w;
+      _tft.drawFastHLine(x + a, y + row, b - a, theme::gold);
+    }
+  }
+}
+
+void HUDRenderer::showTouchPrompt() {
+  invalidate();
+  _cardMode = false;
+  _tft.fillScreen(theme::bg);
+  drawFrame();
+  drawStatusHeader();
+
+  // --- the card ------------------------------------------------------------
+  _tft.fillRect(calCardX, calCardY, calCardW, calCardH, theme::panel);
+  _tft.drawRect(calCardX, calCardY, calCardW, calCardH, theme::gold);
+  const int16_t inX = calCardX + 1, inW = calCardW - 2;
+  const int16_t headRuleY = calCardY + calHeadH;
+  const int16_t bodyY = headRuleY + 1;
+  const int16_t stripeY = calCardY + calCardH - calStripeH;
+
+  // --- header: badge, title, rule ------------------------------------------
+  const int16_t badgeX = calCardX + calBadgeInset;
+  const int16_t badgeY = calCardY + 1 + (calHeadH - 1 - calBadgeH) / 2;
+  // A gold tab whose trailing edge leans outward on the way down, so the tab is
+  // wider at its foot than at its head. The slant is what stops it reading as a
+  // plain rectangle at 40px, and its direction is the reference's.
+  _tft.fillRect(badgeX, badgeY, calBadgeW - calBadgeSlant, calBadgeH, theme::gold);
+  _tft.fillTriangle(badgeX + calBadgeW - calBadgeSlant, badgeY,
+                    badgeX + calBadgeW - calBadgeSlant, badgeY + calBadgeH - 1,
+                    badgeX + calBadgeW, badgeY + calBadgeH - 1, theme::gold);
+  // The warning triangle is knocked out of the tab in the card's own fill
+  // colour, with a gold exclamation inside it -- gold-on-dark-on-gold, exactly
+  // as in the reference. (The task file's parenthetical suggested theme::red
+  // here; the reference supersedes it. One constant if that is wrong.)
+  const int16_t tcx = badgeX + (calBadgeW - calBadgeSlant) / 2;
+  const int16_t tTop = badgeY + 5, tBot = badgeY + calBadgeH - 5;
+  _tft.fillTriangle(tcx, tTop, tcx - 11, tBot, tcx + 11, tBot, theme::panel);
+  _tft.fillRect(tcx - 1, tTop + 8, 3, 7, theme::gold);
+  _tft.fillRect(tcx - 1, tBot - 4, 3, 3, theme::gold);
+
+  // Label weight, not value weight: "TOUCH CALIBRATION REQUIRED" is 394px at
+  // FONT_VALUE and there are 364 to put it in -- and label weight is also the
+  // proportionally right answer, the reference's header caps being about 7.5%
+  // of the card's height, which on 204px is the ~13px FreeSansBold9pt gives.
+  const int16_t titleX = badgeX + calBadgeW + calTitleGap;
+  textBox(titleX, badgeY, calCardX + calCardW - calTextPadR - titleX, calBadgeH,
+          theme::panel, FONT_LABEL, theme::gold, ML_DATUM,
+          F("TOUCH CALIBRATION REQUIRED"));
+  _tft.drawFastHLine(inX, headRuleY, inW, theme::gold);
+
+  // --- body: reticle, then the copy beside it ------------------------------
+  const int16_t bodyH = stripeY - 1 - bodyY;
+  drawCalReticle(calCardX + calIconInset, bodyY + (bodyH - calIconS) / 2, calIconS);
+
+  // TL_DATUM, unlike everything else on the panel -- see the note over the
+  // calAddrDy/calLineH constants. These are the HUD's only mixed-case rows and
+  // the middle datum's ascent-only centring drops their descenders out of the
+  // sprite unless the rows are made a third taller than the type needs.
+  const int16_t textX = calCardX + calIconInset + calIconS + calTextGap;
+  const int16_t textW = calCardX + calCardW - calTextPadR - textX;
+  textBox(textX, bodyY + calAddrDy, textW, calAddrH, theme::panel, FONT_LABEL,
+          theme::text, TL_DATUM, F("Helldiver,"));
+
+  // Written for this panel rather than lifted from the reference: the wording
+  // there is the game's, and this one has to say what this device actually
+  // wants, which is a calibration and not a mission.
+  int16_t ly = bodyY + calCopyDy;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, F("This terminal's touch interface is"));
+  ly += calLineH;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, F("not yet calibrated."));
+  ly += calLineH + calParaGap;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::grey,
+          TL_DATUM, F("Run a calibration to ensure accurate"));
+  ly += calLineH;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::grey,
+          TL_DATUM, F("targeting and stratagem deployment."));
+
+  // --- hazard bar ----------------------------------------------------------
+  // stripeY-1 is the rule; the stripes run from stripeY down to the row above
+  // the card's bottom border, which is calStripeH-1 rows in all.
+  _tft.drawFastHLine(inX, stripeY - 1, inW, theme::gold);
+  drawHazardBar(inX, stripeY, inW, calStripeH - 1);
+
+  // --- the way out ---------------------------------------------------------
+  // The only affordance on the screen, so it is named outright. It does not
+  // promise the wait is unlimited, because it is not: main.cpp gives this a
+  // bounded wait and boots on regardless, and a unit nobody was standing in
+  // front of ends up on the HUD with the footer hint carrying the offer.
+  textBox(padX, calCtaY - calCtaH / 2, contentW, calCtaH, theme::bg, FONT_LABEL,
+          theme::gold, MC_DATUM, F("TOUCH ANYWHERE TO BEGIN"));
+
   _chromeDrawn = false;
 }

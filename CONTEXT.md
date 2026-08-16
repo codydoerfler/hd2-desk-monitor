@@ -65,7 +65,8 @@ update, from SD-card clips where a card is present.
   which is a stationarity test a moving finger cannot pass, and is the actual
   reason the earlier attempt read as "calibration will not hold". Produces
   tap/swipe-left/swipe-right; calibration (four corner targets) is stored in
-  NVS and entered by holding the panel while powering on.
+  NVS and entered by holding the panel while powering on — or, on a unit that
+  has never been set up, by the first-boot prompt (see below).
 - `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
   tiles, crest/skull mark, shield icon, hazard chips, etc).
 - `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
@@ -87,8 +88,9 @@ update, from SD-card clips where a card is present.
 `tools/preview.sh` compiles the firmware's own renderer on the host (not the
 ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
 to check a layout/art change before flashing real hardware. Scenes: `boot`,
-`idle`, `liberation`, `defense`, `invasion`, `stale`, `campaign`, `count`,
-`extraction`, `neworder`, `success`, `failure`, `carousel`. All but the last
+`touchprompt`, `idle`, `liberation`, `defense`, `invasion`, `stale`,
+`uncalibrated`, `campaign`, `count`, `extraction`, `neworder`, `success`,
+`failure`, `carousel`. All but the last
 are shot onto a cleared screen; `carousel` advances a page and repaints
 incrementally, which is the path the device actually lives on. Outputs land at
 repo root as `preview_<scene>.png` and are **gitignored there**; the copies a PR
@@ -125,7 +127,36 @@ Icon/art generator scripts (Python, in `tools/`):
 ## Current state (as of last commit, see `git log`)
 
 Run `git log --oneline -10` for the authoritative recent history. The most
-recent work (branch `hud-cleanup`) was a header/strip/footer pass:
+recent work (branch `touch-onboarding`) was first-run touch setup:
+
+- **A genuinely fresh unit is prompted to calibrate, once.** `setup()` calls
+  `runFirstBootSetupIfDue()` after `maybeRecalibrateTouch()`, so the
+  hold-at-power-on path is unchanged and still takes precedence. The prompt is
+  a full-screen card (`HUDRenderer::showTouchPrompt()`, drawn natively from
+  `touch_calibration_reference.jpg`) with a 30 s bounded wait for a contact,
+  then boot carries on regardless — a dead panel cannot hold the device here.
+- **"Fresh" is narrower than "uncalibrated".** A second NVS key
+  (`HD2_PREFS_TOUCH_SETUP_KEY`, `hd2`/`touchSetup`) records that the prompt has
+  been shown, and `touch::firstRunSetupDue()` requires no calibration blob, no
+  stored blob at all, *and* no setup flag. A panel someone cleared with
+  `forget()`, or whose blob a firmware update rejected, has been through setup
+  already and is not stopped again. The flag is written *before* the prompt, so
+  a brown-out mid-calibration cannot make every later boot stop here.
+- **A footer hint while uncalibrated**, `HOLD SCREEN AT POWER-ON TO
+  CALIBRATE`, 6x8 grey, in the gap the footer rework left between the reward
+  and the sync clock. It is in `_footerSig`, so it clears on the first frame
+  after a calibration succeeds. Grey, not amber: amber in that row already
+  means the data is stale.
+- **New preview scenes `touchprompt` and `uncalibrated`**, plus card and hint
+  assertions in `tools/check_layout.py`.
+- **The card's body copy is the HUD's only mixed-case text**, and so the only
+  place drawn `TL_DATUM`. TFT_eSPI centres a free font on its ascent alone, so
+  `ML_DATUM` pushes descenders out of the sprite unless the row is made a third
+  taller than the type needs. Top datum puts the baseline a fixed `glyph_ab`
+  (13px at 9pt) down instead. Worth knowing before adding any other mixed-case
+  row.
+
+Before that (branch `hud-cleanup`) was a header/strip/footer pass:
 
 - **The header row repaints on its own signature now** (`drawHeader()`, called
   from every `update()`). It didn't before: only a full body repaint drew it,

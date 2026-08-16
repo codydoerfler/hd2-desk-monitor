@@ -411,4 +411,99 @@ for n in sorted(set(FACTION_ICON.values())):
     check(f'badge icon "{n}" height', ICONS[n][1], badgeH - 2)
 check("badge height in the target row", badgeH, targetH)
 
+# --- first-boot touch calibration prompt ------------------------------------
+#
+# The one screen on the HUD set in mixed case, which makes it the one screen
+# whose rows have to reserve descender space -- and the reason the checks below
+# measure the real strings rather than the CAPS alphabet everything else uses.
+print("\n=== first-boot calibration card: bands ===")
+calHeadRuleY = calCardY + calHeadH
+calBodyY = calHeadRuleY + 1
+calStripeY = calCardY + calCardH - calStripeH
+grid("calibration card bands", [("head", calCardY + 1, calHeadH - 1),
+                                ("headRule", calHeadRuleY, 1),
+                                ("body", calBodyY, calStripeY - 1 - calBodyY),
+                                ("stripeRule", calStripeY - 1, 1),
+                                ("stripes", calStripeY, calStripeH - 1)],
+     calCardY, calCardY + calCardH - 1)
+check("card clears the SUPER EARTH rule", rule1Y + 1, calCardY)
+check("card bottom clears the CTA line", calCardY + calCardH,
+      calCtaY - calCtaH // 2)
+check("CTA line inside the frame", calCtaY + calCtaH // 2, frameY + frameH - 1)
+
+print("=== first-boot calibration card: body rows ===")
+calBodyH = calStripeY - 1 - calBodyY
+calTextX = calCardX + calIconInset + calIconS + calTextGap
+calTextW = calCardX + calCardW - calTextPadR - calTextX
+print(f"    icon {calIconS}x{calIconS} at x={calCardX + calIconInset}, "
+      f"text column x={calTextX} w={calTextW}px")
+check("icon box inside the body band", calIconS, calBodyH)
+check("icon box clear of the text column", calCardX + calIconInset + calIconS,
+      calTextX)
+CAL_ROWS = [("address", calAddrDy, calAddrH),
+            ("copy1", calCopyDy, calLineH),
+            ("copy2", calCopyDy + calLineH, calLineH),
+            ("copy3", calCopyDy + 2 * calLineH + calParaGap, calLineH),
+            ("copy4", calCopyDy + 3 * calLineH + calParaGap, calLineH)]
+prev_name, prev_bottom = "body top", 0
+for name, dy, h in CAL_ROWS:
+    ok = dy >= prev_bottom
+    print(f"{'ok ' if ok else 'BAD'} {name:<10} dy {dy:>3}..{dy + h - 1:>3}   "
+          f"(after {prev_name} @{prev_bottom})")
+    if not ok:
+        fail.append(f"cal row {name} overlaps {prev_name}")
+    prev_name, prev_bottom = name, dy + h
+check("cal text rows inside the body band", prev_bottom, calBodyH)
+
+# TFT_eSPI puts a free font's baseline glyph_ab px below a TL_DATUM anchor
+# (drawString() adds glyph_ab and the top datum subtracts nothing), so a row
+# clears its own type when baseline + the deepest descender fits inside it.
+# That is a different sum from the CAPS rows above, which never descend.
+def tl_need(font, s):
+    rows = GLYPH_BOX[font]
+    ab = max(-yo for _, yo in rows.values())
+    bot = max(rows[ord(c)][1] + rows[ord(c)][0] for c in s if ord(c) in rows)
+    return ab + bot
+
+
+print("=== first-boot calibration card: strings ===")
+CAL_COPY = ["This terminal's touch interface is", "not yet calibrated.",
+            "Run a calibration to ensure accurate",
+            "targeting and stratagem deployment."]
+check('"Helldiver," @9pt bold', w(LABEL, "Helldiver,"), calTextW)
+check('"Helldiver," row height', tl_need(LABEL, "Helldiver,"), calAddrH)
+for s in CAL_COPY:
+    check(f'"{s[:34]}" @9pt', w(BODY, s), calTextW)
+    check(f'"{s[:26]}" row height', tl_need(BODY, s), calLineH)
+# The header title sits between the badge and the card's right padding. At
+# FONT_VALUE it is 394px and does not fit; label weight is what makes it.
+calTitleX = calCardX + calBadgeInset + calBadgeW + calTitleGap
+check('"TOUCH CALIBRATION REQUIRED" @9pt bold', w(LABEL, "TOUCH CALIBRATION REQUIRED"),
+      calCardX + calCardW - calTextPadR - calTitleX)
+check('"TOUCH ANYWHERE TO BEGIN" @9pt bold', w(LABEL, "TOUCH ANYWHERE TO BEGIN"),
+      contentW)
+# The triangle is knocked out of the tab's rectangular part, clear of the
+# slanted trailing edge -- see the badge block in showTouchPrompt().
+check("warning triangle width inside the tab", 23, calBadgeW - calBadgeSlant)
+check("warning triangle height inside the tab", calBadgeH - 10, calBadgeH)
+check("badge inside the header band", calBadgeH, calHeadH - 1)
+
+# --- the uncalibrated hint, in the footer's middle gap -----------------------
+#
+# Set in the built-in 6x8 face, in the space the footer rework left empty
+# between the reward and the sync clock. It has to fit that gap without
+# touching either neighbour -- a hint that shoves the reward or the clock is
+# worse than no hint.
+print("\n=== footer: uncalibrated-touch hint ===")
+kHintX = cardX + ICONS["medal"][0] + footerIconGap + kRewardBoxW
+kHintW = (contentR - syncBoxW) - kHintX
+print(f"    hint box x={kHintX} w={kHintW}px, between the reward and the clock")
+check("reward block ends at the hint box's left edge",
+      cardX + ICONS["medal"][0] + footerIconGap + kRewardBoxW, kHintX)
+check("hint box ends at the sync box's left edge", kHintX + kHintW,
+      contentR - syncBoxW)
+check('"HOLD SCREEN AT POWER-ON TO CALIBRATE" @6x8',
+      glcd("HOLD SCREEN AT POWER-ON TO CALIBRATE"), kHintW)
+check("6x8 hint row inside the footer", GLCD_H, footerH)
+
 print("\n" + ("ALL LAYOUT CHECKS PASSED" if not fail else "FAILURES:\n  " + "\n  ".join(fail)))

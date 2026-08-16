@@ -466,6 +466,51 @@ GPIO34–39 are input-only with no internal pull-ups, so whether that line is
 usable at all depends on an external pull-up being fitted; polling the pressure
 value costs little and does not depend on the board's population options.
 
+### First boot
+
+Hold-at-power-on is the escape hatch, not the introduction. Nobody unboxing a
+board knows the gesture, and the one place the device could tell them is a
+screen they have no reason to be reading yet. So a unit that has *never* been
+set up asks, once, on its own:
+
+![touch prompt](docs/preview_touchprompt.png)
+
+Touch anywhere and it goes straight into the four corner targets. Touch
+nothing for 30 s and the boot carries on uncalibrated — a panel that is
+unwired, or a board on a desk with nobody near it, must not be able to hold
+the device on this screen forever.
+
+"Never been set up" is deliberately narrower than "has no calibration". Three
+different situations produce an uncalibrated panel and only one of them is a
+fresh unit:
+
+| | stored blob | `touchSetup` | first boot asks? |
+|---|---|---|---|
+| Out of the box | — | — | **yes** |
+| `forget()` cleared it | — | set | no |
+| Blob rejected by an update | present, unreadable | set | no |
+
+`touchSetup` is a second NVS key, written the moment the prompt goes on the
+panel and never cleared — including by `forget()`, which clears the
+calibration and nothing else. Writing it *before* the prompt rather than after
+the calibration is what stops a brown-out mid-calibration from making every
+subsequent boot stop here.
+
+The other two rows are units that have been through setup already and whose
+owner knows the gesture. They get the hint instead, and their boot is not
+interrupted.
+
+### The uncalibrated hint
+
+While the panel is uncalibrated the footer's middle gap — the space between
+the reward and the sync clock — carries `HOLD SCREEN AT POWER-ON TO
+CALIBRATE` in the 6x8 face, in grey. It is in the footer's signature, so the
+frame after a calibration succeeds is the frame it disappears on, permanently.
+
+Grey rather than the amber the sync clock uses when stale: an uncalibrated
+panel is a device working from a usable guess, not a device in trouble, and
+the footer already has a colour that means *something is wrong*.
+
 ---
 
 ## Firmware updates
@@ -559,7 +604,7 @@ screen as it advances:
 | art | the biome plate, with the planet's name, sector and headline stat set over it, the faction mark on a dark disc top-right, and (order cards only) the order's name and a countdown plate |
 | bars | one track for a liberation, two for a defence — each captioned with what it measures, its value and its measured rate |
 | strip | on a planet objective, four values: diver share, divers present, the players' push, the enemy's regen. On a count objective — kills, extractions, operations — the last two are structurally empty, so the row runs three wide and ends on a projected ETA instead |
-| footer | the order's reward at the left, the sync clock at the right |
+| footer | the order's reward at the left, the sync clock at the right, and — only while the panel is uncalibrated — the calibration hint in the gap between them |
 
 The two differ only in how much of that budget the bars need. A defence draws
 two tracks and a liberation one, so the **art absorbs the difference**
@@ -745,8 +790,13 @@ one `pio run` (they read `.pio/libdeps/...`).
 python3 tools/check_layout.py   # asserts every HUD string fits its box
 ```
 
-Scenes are `boot`, `defense`, `invasion`, `liberation`, `campaign`, `count`,
-`extraction`, `idle`, `stale`, `neworder`, `success`, `failure` and `carousel`.
+Scenes are `boot`, `touchprompt`, `defense`, `invasion`, `liberation`,
+`campaign`, `count`, `extraction`, `idle`, `stale`, `uncalibrated`, `neworder`,
+`success`, `failure` and `carousel`.
+
+`uncalibrated` is the defence card with the footer's calibration hint up. The
+defence footer is the busiest one — reward, hint and sync clock all in the same
+row — so it is the scene a hint that had outgrown its gap would collide on.
 
 `carousel` is the odd one out. Every other scene is shot onto a freshly cleared
 screen, which is the one path the device almost never takes; `carousel` advances

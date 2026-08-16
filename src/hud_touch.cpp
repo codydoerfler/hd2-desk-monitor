@@ -109,6 +109,16 @@ constexpr Calibration kDefaultCal = {
 Calibration cal = kDefaultCal;
 bool haveCal = false;
 
+// Whether NVS held a touch blob at all when begin() looked, whatever this
+// firmware then made of it. loadCal() failing covers three different
+// situations and only one of them is a fresh unit -- see firstRunSetupDue().
+bool haveStoredBlob = false;
+
+// Whether the first-boot prompt has already been shown on this unit. Read once
+// in begin(); the setter below writes through to NVS rather than waiting for a
+// clean shutdown, which a desk unit does not have.
+bool setupShown = false;
+
 // --- gesture state ---------------------------------------------------------
 
 bool down = false;
@@ -191,10 +201,18 @@ void toScreen(uint16_t rx, uint16_t ry, int16_t &sx, int16_t &sy) {
 
 bool loadCal() {
   Preferences p;
+  // A namespace that does not exist yet fails to open read-only, which on this
+  // device means nothing has ever been written to NVS at all -- no WiFi
+  // credentials, no timezone, no calibration. That is the fresh-unit case, and
+  // both flags below stay false for it.
   if (!p.begin(HD2_PREFS_NS, /*readOnly=*/true)) return false;
   Calibration stored{};
   const size_t n = p.getBytes(HD2_PREFS_TOUCH_KEY, &stored, sizeof(stored));
+  setupShown = p.getBool(HD2_PREFS_TOUCH_SETUP_KEY, false);
   p.end();
+  // Recorded before the blob is judged: a stored calibration this firmware
+  // cannot use is still evidence that somebody set this panel up once.
+  haveStoredBlob = (n > 0);
   if (n != sizeof(stored) || stored.version != kCalVersion) return false;
 
   // Calibration is a mapping onto a particular screen orientation; applying
@@ -214,6 +232,7 @@ void saveCal() {
   if (!p.begin(HD2_PREFS_NS, /*readOnly=*/false)) return;
   p.putBytes(HD2_PREFS_TOUCH_KEY, &cal, sizeof(cal));
   p.end();
+  haveStoredBlob = true;
 }
 
 // --- calibration UI --------------------------------------------------------
@@ -294,10 +313,31 @@ void begin(TFT_eSPI &tft) {
     cal = kDefaultCal;
     Serial.println(F("[touch] no stored calibration — using built-in defaults, "
                      "which are a guess. Run calibration to fix tap positions."));
+    // Which of the three uncalibrated states this is decides whether the boot
+    // stops to ask for a calibration, so it is worth naming in the log.
+    Serial.printf("[touch] %s\n",
+                  firstRunSetupDue()
+                      ? "first-ever boot: nothing stored, setup prompt is due"
+                      : (haveStoredBlob
+                             ? "a stored calibration exists but this firmware "
+                               "cannot use it — no prompt, hint only"
+                             : "previously set up and since cleared — no prompt, "
+                               "hint only"));
   }
 }
 
 bool calibrated() { return haveCal; }
+
+bool firstRunSetupDue() { return !haveCal && !haveStoredBlob && !setupShown; }
+
+void markFirstRunSetupDone() {
+  if (setupShown) return;
+  setupShown = true;
+  Preferences p;
+  if (!p.begin(HD2_PREFS_NS, /*readOnly=*/false)) return;
+  p.putBool(HD2_PREFS_TOUCH_SETUP_KEY, true);
+  p.end();
+}
 
 bool pressed() {
   if (!panel) return false;
@@ -475,6 +515,11 @@ void forget() {
   }
   cal = kDefaultCal;
   haveCal = false;
+  haveStoredBlob = false;
+  // HD2_PREFS_TOUCH_SETUP_KEY is deliberately left alone. Clearing a
+  // calibration is a deliberate act by somebody who already knows how to run
+  // one; it should not turn the unit back into a fresh one and start stopping
+  // its boots. The persistent hint covers the reminder.
   Serial.println(F("[touch] stored calibration cleared"));
 }
 

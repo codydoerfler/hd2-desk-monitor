@@ -10,8 +10,9 @@
 #      ./tools/preview.sh            # every scene
 #      ./tools/preview.sh defense    # just one
 #
-#  Scenes: boot, defense, invasion, liberation, campaign, count, extraction,
-#          idle, stale, neworder, success, failure, carousel.
+#  Scenes: boot, touchprompt, defense, invasion, liberation, campaign, count,
+#          extraction, idle, stale, uncalibrated, neworder, success, failure,
+#          carousel.
 #
 #  `carousel` is the odd one out: it is shot after a page advance rather than
 #  onto a cleared screen, so it covers the incremental repaint path the device

@@ -88,6 +88,32 @@ void begin(TFT_eSPI &tft);
 // raw ADC counts mapped through a rough default, so they may be some way off.
 bool calibrated();
 
+// True on a unit that has never been through first-boot touch setup: no
+// calibration blob has ever been written to NVS, and the prompt has never been
+// put on the panel. This is the narrow question main.cpp asks before stopping
+// the boot to ask for a calibration, and it is deliberately narrower than
+// !calibrated():
+//
+//   * A blob that this firmware cannot read -- an older struct version, or one
+//     taken at a different rotation -- leaves calibrated() false, but the unit
+//     has been set up. Its owner knows the hold-at-power-on gesture exists,
+//     because they used it, and an OTA that starts stopping their boots to ask
+//     again would be the update breaking something that worked.
+//   * forget() drops the blob but not the setup flag, for the same reason: it
+//     is something you do deliberately, on purpose, to recalibrate.
+//
+// Both of those states still get the persistent on-screen hint, which is the
+// gentle half of this. Only a genuinely fresh unit gets the boot stopped.
+bool firstRunSetupDue();
+
+// Records that the first-boot prompt has been shown, so it is shown exactly
+// once whatever came of it -- calibrated, skipped, or timed out against a
+// panel nobody was standing in front of. Persisted immediately: a unit that
+// reboots between the prompt and a completed calibration has still had its one
+// chance, and a boot that stops for a minute every time is the failure mode
+// this whole flow is built around avoiding.
+void markFirstRunSetupDone();
+
 // Call from loop(). Cheap when nothing is touching: one pressure conversion,
 // about 20us. Returns kNone until a contact ends.
 Gesture poll();
