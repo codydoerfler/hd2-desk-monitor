@@ -94,6 +94,15 @@ static const int16_t kUtcOffsetMinutesMax = 14 * 60;
 // missing.
 #define HD2_PREFS_TOUCH_KEY "touchCal"
 
+// Set the first time the forced first-boot calibration prompt is put on the
+// panel, and never cleared. Separate from the calibration itself because
+// "there is no calibration" and "this unit has never been set up" are
+// different questions: a panel someone deliberately cleared with forget(), or
+// one whose stored blob a firmware update made unreadable, has been through
+// setup already and must not have the boot stopped for it again. Only a unit
+// with neither a blob nor this flag is genuinely fresh out of the box.
+#define HD2_PREFS_TOUCH_SETUP_KEY "touchSetup"
+
 // --------------------------------------------------------------------------
 //  Palette — Super Earth command terminal
 //  RGB565. Source hex values are in the comments.
@@ -183,10 +192,8 @@ constexpr int16_t targetY = 90, targetH = 34;
 constexpr int16_t barY = 132, barH = 36;
 constexpr int16_t tileY = 180, tileH = 68, tileGap = 7;
 constexpr int16_t rule3Y = 260;
-// 15px here clipped the baseline off a grouped diver count ("33,400" spans
-// 16px in FreeSans9pt); the row used to be 18 on the card and 15 everywhere
-// else, and unifying the footer inherited the shorter of the two.
-constexpr int16_t footerY = 284, footerH = 18;
+// The footer row's own geometry lives with the rest of the footer constants,
+// down in "header + footer".
 
 // Major Order header bar — the skull badge, the Anton-set order title and the
 // Earth/gold-sweep background wash, in place of the "SUPER EARTH" strip.
@@ -321,9 +328,88 @@ constexpr int16_t stripCols = 4;
 // --- header + footer ------------------------------------------------------
 // Gap between the objective-type word and the LIBCON chip beside it.
 constexpr int16_t libconGapX = 14;
-// Carousel position pips, in the header row opposite the type word.
-constexpr int16_t pipS = 6, pipGap = 5, pipRowGap = 12;
-// Footer: divers on the left, reward centred, sync + link state on the right.
-constexpr int16_t footIconGap = 6;
-constexpr int16_t footDotR = 5;
+// Carousel position pips, in the header row opposite the type word. pipS is
+// the active pip; the inactive ones are hollow and pipDimInset smaller on
+// every side, because fill alone at 6px was a difference you had to hunt for
+// from a desk away. Three pips cost 3*pipS + 2*pipGap = 34px, which still
+// clears the WiFi slot with the longest type word in front of them.
+constexpr int16_t pipS = 8, pipGap = 5, pipRowGap = 12;
+constexpr int16_t pipDimInset = 2;
+// The right-hand slot the WiFi label and dot own on the header row. Also what
+// the rest of that row is cleared *up to* -- see drawStatusHeader().
+constexpr int16_t wifiSlotW = 110;
+// Footer: the order's reward at the left, the sync clock at the right.
+//
+// Deeper than the 18px it was: the reward is the row's headline now that the
+// diver count has gone (it was a second copy of the strip's DIVERS column) and
+// it is set in FONT_VALUE, which needs the height. The row still ends clear of
+// the frame's bottom bracket at y=309.
+constexpr int16_t footerY = 280, footerH = 24;
+constexpr int16_t footDotR = 5;  // the WiFi dot, on the header row
+// Sync clock, right-aligned: a small ring-and-hands glyph and HH:MM in the
+// built-in 6x8 face. A staleness indicator reads as one at caption size --
+// spelling out "SYNCED" in body text spent 150px of the row on a clock.
+constexpr int16_t syncGlyphR = 5;
+constexpr int16_t syncGap = 6;      // glyph -> time
+constexpr int16_t syncBoxW = 96;    // fixed, so a shrinking string leaves no tail
+// The uncalibrated-touch hint sits between the reward and the clock, in the
+// gap the footer rework deliberately left empty. Its box is derived from the
+// reward block's own width in hud_renderer.cpp rather than named here, because
+// both of that block's terms (the medal icon and the reward box) live there.
+
+// --------------------------------------------------------------------------
+//  First-boot touch calibration prompt
+//
+//  A gold-bordered warning card, traced from touch_calibration_reference.jpg
+//  at this panel's own 480x320 rather than scaled from it: header band with a
+//  warning badge and a rule under it, a reticle icon beside four lines of
+//  body copy, and a hazard-stripe bar along the bottom. The reference's
+//  photographic background and the HELLDIVERS II wordmark are deliberately
+//  absent -- they are the game's artwork, not this project's, and the HUD's
+//  own plain background is what the rest of the screens use anyway.
+//
+//  The card keeps the reference's band proportions (21% header, 61% body, 16%
+//  hazard bar) so it reads as the same object at a fifth of the pixels.
+// --------------------------------------------------------------------------
+constexpr int16_t calCardX = padX;      // 20
+constexpr int16_t calCardW = contentW;  // 440
+constexpr int16_t calCardY = 52;        // clear of the SUPER EARTH strip's rule
+constexpr int16_t calCardH = 204;       // 2.16:1, the reference's own aspect
+constexpr int16_t calHeadH = 44;        // header band, to the rule under it
+constexpr int16_t calStripeH = 33;      // hazard bar, below its own rule
+// Warning badge: a gold tab with a dark triangle in it, at the left of the
+// header. The trailing edge slants outward on the way down -- the tab is wider
+// at the bottom than the top -- which is the reference's, and is what stops it
+// reading as a plain rectangle at this size.
+constexpr int16_t calBadgeInset = 10, calBadgeW = 40, calBadgeH = 30;
+constexpr int16_t calBadgeSlant = 8;
+constexpr int16_t calTitleGap = 16;     // badge -> "TOUCH CALIBRATION REQUIRED"
+// Body: the reticle on the left, the copy on the right.
+constexpr int16_t calIconInset = 14, calIconS = 92;
+constexpr int16_t calTextGap = 16;      // icon box -> text column
+constexpr int16_t calTextPadR = 10;     // text column -> the card's border
+// Text rows, relative to the top of the body band.
+//
+// These are the only rows on the panel set in mixed case, so they are also the
+// only ones that have to reserve descender space -- 17px of glyph against the
+// 13px every ALL-CAPS row elsewhere gets away with. They are drawn TL_DATUM
+// rather than the ML_DATUM the rest of the HUD uses, which is what keeps them
+// this tight: TFT_eSPI centres a free font on its ascent alone (drawString()
+// adds glyph_ab, then ML_DATUM subtracts only half of it), so a middle-datum
+// row carrying a 'y' needs 25px to avoid clipping the tail. Top-datum puts the
+// baseline a fixed 13px down and needs 19. Four of these fit the band; four of
+// those would not.
+constexpr int16_t calAddrDy = 8, calAddrH = 20;   // "Helldiver,"
+constexpr int16_t calCopyDy = 30;                 // first body line
+constexpr int16_t calLineH = 20;                  // 19px of need + 1 of slack
+constexpr int16_t calParaGap = 6;
+// Hazard stripes: pitch along the x axis, drawn at 45 degrees.
+constexpr int16_t calStripePitch = 14, calStripeInk = 7;
+// "TOUCH ANYWHERE TO BEGIN", vertically centred on exactly the row the
+// overlays put their dismiss line on, so the two screens that take the whole
+// panel agree about where the line telling you what to do with it lives. Spelt
+// out the same way drawOverlay() spells it rather than as a bare 290, so the
+// two cannot drift apart silently.
+constexpr int16_t calCtaY = screenH - frameY - 22;
+constexpr int16_t calCtaH = 20;
 }  // namespace layout

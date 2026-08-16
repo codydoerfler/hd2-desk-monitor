@@ -332,6 +332,73 @@ static void maybeRecalibrateTouch() {
   hud.invalidate();
 }
 
+// The one exception to "calibration is never run unprompted": a unit fresh out
+// of the box, on its first-ever power-on.
+//
+// The reasoning above still holds -- a boot that stops for a minute, every
+// boot, forever, would be worse than a tap landing ten pixels out. What makes
+// this safe is that it happens exactly once per unit, and the once is the one
+// boot where somebody is definitely standing in front of the panel, because
+// they have just plugged it in. touch::firstRunSetupDue() is what draws that
+// line, and it is deliberately narrow: a cleared calibration or a stored blob
+// this firmware cannot read both mean the unit has been set up already, and
+// neither of them stops a boot. Only never-calibrated-and-never-asked does.
+//
+// Everything here is bounded. If nobody touches the panel the prompt gives up
+// and the HUD comes up uncalibrated, with the footer hint carrying the offer
+// instead; if somebody does, touch::calibrate() has its own timeout for a
+// panel that stops responding partway through the four corners.
+//
+// Called after maybeRecalibrateTouch(), so the documented hold-at-power-on
+// gesture keeps working unchanged and takes precedence -- a fresh unit whose
+// owner held the screen has already calibrated by the time this runs, and
+// firstRunSetupDue() is false. The one case that reaches both is a hold whose
+// calibration then timed out, which is a panel worth offering twice.
+static void runFirstBootSetupIfDue() {
+  if (!touch::firstRunSetupDue()) return;
+
+  // Recorded before the prompt goes up rather than after it comes down.
+  // Whatever happens next -- calibrated, ignored, or the power pulled halfway
+  // through -- this unit has had its one interruption. Marking it afterwards
+  // would mean a board that browns out during calibration stops its own boot
+  // again on the retry, which is the failure mode this whole flow is shaped
+  // around avoiding.
+  touch::markFirstRunSetupDone();
+
+  Serial.println(F("[touch] first boot: nothing calibrated on this unit yet — "
+                   "prompting for one"));
+  hud.showTouchPrompt();
+
+  // No dumpDiagnostics() here, unlike the hold-at-boot path. That dump is five
+  // seconds of a frozen screen for the benefit of a serial console, and on a
+  // first boot there is a person watching the panel and nobody watching the
+  // console. The hold gesture remains the way to get those numbers.
+  constexpr uint32_t kPromptMs = 30000;
+  const uint32_t until = millis() + kPromptMs;
+  bool touched = false;
+  while ((int32_t)(millis() - until) < 0) {
+    if (touch::pressed()) {
+      touched = true;
+      break;
+    }
+    delay(20);
+  }
+
+  if (!touched) {
+    Serial.println(F("[touch] first-boot prompt went unanswered — continuing "
+                     "uncalibrated. Hold the panel at power-on to calibrate."));
+    return;
+  }
+
+  // Let the finger come off first. calibrate() opens by asking for the
+  // top-left corner, and a contact still resting in the middle of the panel
+  // from the tap that got us here would be read as that corner's first sample.
+  while (touch::pressed()) delay(10);
+
+  touch::calibrate();
+  hud.invalidate();
+}
+
 // ---------------------------------------------------------------------------
 //  Polling
 // ---------------------------------------------------------------------------
@@ -647,6 +714,12 @@ void setup() {
   storage::begin();
   touch::begin(hud.panel());
   maybeRecalibrateTouch();
+  // Before WiFi, not after: a fresh unit's owner is standing over it with the
+  // plug still in their hand, and asking them to calibrate is a better use of
+  // that moment than a "Connecting..." line they cannot help with. It also
+  // means the very first thing the panel ever displays is the one screen that
+  // asks something of them.
+  runFirstBootSetupIfDue();
   hud.showBoot("Connecting to WiFi...");
 
   // "I'm awake." Every boot, power-cycle included, once the panel is lit and
@@ -753,6 +826,10 @@ void setup() {
 void loop() {
   const uint32_t nowMs = millis();
   model.wifiUp = (WiFi.status() == WL_CONNECTED);
+  // Read every iteration rather than latched at boot: calibrate() can be
+  // reached at runtime, and this going false is what takes the footer's hint
+  // off the screen on the very next frame.
+  model.touchUncalibrated = !touch::calibrated();
 
   // Nudge the WiFi stack if it has dropped. autoReconnect usually handles it;
   // this covers the cases where it gives up.

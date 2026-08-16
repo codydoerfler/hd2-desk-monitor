@@ -13,8 +13,8 @@ only. WiFi + USB-C powered. Polls the community API at api.helldivers2.dev
 every 5 minutes and renders a Super Earth command-terminal style HUD.
 
 Cards are art-led: the biome plate fills the upper half with the planet's
-identity set over it, progress tracks beneath, a four-value stat strip, then
-the footer. An active Major Order owns the screen (its targets are the only
+identity set over it, progress tracks beneath, a stat strip (four values on a
+planet objective, three on a count one), then the footer. An active Major Order owns the screen (its targets are the only
 carousel pages); with no order, the five busiest liberation campaigns take
 over. Pages advance on a 7s timer, or on a swipe (which restarts the timer).
 
@@ -65,7 +65,8 @@ update, from SD-card clips where a card is present.
   which is a stationarity test a moving finger cannot pass, and is the actual
   reason the earlier attempt read as "calibration will not hold". Produces
   tap/swipe-left/swipe-right; calibration (four corner targets) is stored in
-  NVS and entered by holding the panel while powering on.
+  NVS and entered by holding the panel while powering on — or, on a unit that
+  has never been set up, by the first-boot prompt (see below).
 - `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
   tiles, crest/skull mark, shield icon, hazard chips, etc).
 - `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
@@ -87,9 +88,12 @@ update, from SD-card clips where a card is present.
 `tools/preview.sh` compiles the firmware's own renderer on the host (not the
 ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
 to check a layout/art change before flashing real hardware. Scenes: `boot`,
-`idle`, `liberation`, `defense`, `invasion`, `stale`, `campaign`, `count`,
-`extraction`, `neworder`, `success`, `failure`. Outputs land at repo root as
-`preview_<scene>.png` and are **gitignored there**; the reviewed copies a PR
+`touchprompt`, `idle`, `liberation`, `defense`, `invasion`, `stale`,
+`uncalibrated`, `campaign`, `count`, `extraction`, `neworder`, `success`,
+`failure`, `carousel`. All but the last
+are shot onto a cleared screen; `carousel` advances a page and repaints
+incrementally, which is the path the device actually lives on. Outputs land at
+repo root as `preview_<scene>.png` and are **gitignored there**; the copies a PR
 is read against live in `docs/`, so copy them across after regenerating.
 Regenerate after any renderer/icon change and look at them before calling a
 visual change done.
@@ -123,7 +127,63 @@ Icon/art generator scripts (Python, in `tools/`):
 ## Current state (as of last commit, see `git log`)
 
 Run `git log --oneline -10` for the authoritative recent history. The most
-recent work (branch `touch-and-events`) added touch, SD audio and the event
+recent work (branch `touch-onboarding`) was first-run touch setup:
+
+- **A genuinely fresh unit is prompted to calibrate, once.** `setup()` calls
+  `runFirstBootSetupIfDue()` after `maybeRecalibrateTouch()`, so the
+  hold-at-power-on path is unchanged and still takes precedence. The prompt is
+  a full-screen card (`HUDRenderer::showTouchPrompt()`, drawn natively from
+  `touch_calibration_reference.jpg`) with a 30 s bounded wait for a contact,
+  then boot carries on regardless — a dead panel cannot hold the device here.
+- **"Fresh" is narrower than "uncalibrated".** A second NVS key
+  (`HD2_PREFS_TOUCH_SETUP_KEY`, `hd2`/`touchSetup`) records that the prompt has
+  been shown, and `touch::firstRunSetupDue()` requires no calibration blob, no
+  stored blob at all, *and* no setup flag. A panel someone cleared with
+  `forget()`, or whose blob a firmware update rejected, has been through setup
+  already and is not stopped again. The flag is written *before* the prompt, so
+  a brown-out mid-calibration cannot make every later boot stop here.
+- **A footer hint while uncalibrated**, `HOLD SCREEN AT POWER-ON TO
+  CALIBRATE`, 6x8 grey, in the gap the footer rework left between the reward
+  and the sync clock. It is in `_footerSig`, so it clears on the first frame
+  after a calibration succeeds. Grey, not amber: amber in that row already
+  means the data is stale.
+- **New preview scenes `touchprompt` and `uncalibrated`**, plus card and hint
+  assertions in `tools/check_layout.py`.
+- **The card's body copy is the HUD's only mixed-case text**, and so the only
+  place drawn `TL_DATUM`. TFT_eSPI centres a free font on its ascent alone, so
+  `ML_DATUM` pushes descenders out of the sprite unless the row is made a third
+  taller than the type needs. Top datum puts the baseline a fixed `glyph_ab`
+  (13px at 9pt) down instead. Worth knowing before adding any other mixed-case
+  row.
+
+Before that (branch `hud-cleanup`) was a header/strip/footer pass:
+
+- **The header row repaints on its own signature now** (`drawHeader()`, called
+  from every `update()`). It didn't before: only a full body repaint drew it,
+  and a carousel step within one Major Order repaints just the card — so the
+  pips and the objective-type word beside them sat on whatever the last full
+  repaint left there. On a live three-task order the pips never appeared to
+  move at all. The pips are also bigger and now filled-vs-hollow-and-smaller,
+  because same-size fill alone was not a difference you could see from a desk.
+- **The stat strip drops to three columns on a count objective.** PUSH /H and
+  REGEN /H are planet readings; on a kill/extract/operations task there is no
+  planet rate to put in them and they read `--` on every such card by
+  construction. Those cards get `SHARE | DIVERS | ETA` instead, the ETA
+  projected from the count rate already being measured. Planet objectives keep
+  all four, unchanged.
+- **The footer is the reward and the sync clock, nothing else.** The diver
+  count that used to sit at its left was the same number as the strip's DIVERS
+  column two rows up. The reward moved left and up to 12pt bold; the sync line
+  became a ring glyph and `hh:mm` in the built-in 6x8 face, right-aligned,
+  amber with a `STALE` prefix when the data has aged out. Staleness needs a
+  word at that size — a muted colour alone made the exception *less* visible
+  than the normal state, which was the first thing the preview caught.
+- **New preview scene `carousel`**, shot after a page advance instead of onto
+  a cleared screen. Every other scene calls `invalidate()` first, which is why
+  none of them could have caught the header bug. Add to it rather than adding
+  another from-scratch scene when the thing under test is a repaint.
+
+Before that (branch `touch-and-events`) came touch, SD audio and the event
 screens:
 
 - **Count-style order tasks show real progress.** Eradicate/extract-style
@@ -161,7 +221,8 @@ Before that (v1.1.0) was a card redesign plus audio:
   along with drawWash/washText/drawHatch and the header wash art. Net effect
   was flash *down* despite adding a 30KB audio clip.
 - **LIBCON chip and carousel pips moved into the header row**, which every
-  screen now shares. The footer is divers / reward / sync only.
+  screen now shares. The footer became divers / reward / sync (the divers
+  reading has since gone — see the header/strip/footer pass above).
 - **An active Major Order owns the screen.** pageCount() returns the order's
   tasks when one is live and campaigns only when none is; the campaigns feed
   is not even fetched while an order runs. Don't "fix" this into a combined

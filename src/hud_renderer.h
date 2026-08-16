@@ -30,6 +30,12 @@ class HUDRenderer {
   // Full-screen status pages used before the HUD has data.
   void showBoot(const char *status);
   void showPortal(const char *ssid, const char *pass);
+  // The first-boot calibration prompt: a gold warning card asking to be
+  // touched, drawn from touch_calibration_reference.jpg. Shown once on a unit
+  // that has never been calibrated, and left up while main.cpp waits for a
+  // contact -- touching it is what starts touch::calibrate(), which paints its
+  // own four-corner chrome over the top. See the card constants in config.h.
+  void showTouchPrompt();
 
   // Paints `m`, repainting only what changed. `nowUtc` drives the clocks.
   void update(const HudModel &m, time_t nowUtc);
@@ -78,6 +84,12 @@ class HUDRenderer {
   // are skipped when zero, which is what the boot and setup screens want.
   void drawStatusHeader(const String &title = String(), int8_t tier = 0,
                         uint8_t pages = 0, uint8_t page = 0);
+  // Works out what that row should say for `m` at the current page and repaints
+  // it when the answer changed. Called on every update(), not just on a full
+  // body repaint: a carousel step within one Major Order repaints only the
+  // card, and without this the pips and the objective-type word beside them
+  // stay on whatever the last full repaint left there.
+  void drawHeader(const HudModel &m);
   void drawBody(const HudModel &m, time_t nowUtc);
   void drawIdleBody(const HudModel &m);
   // One campaign card, `p`/`h` resolved by the caller from m.campaigns[]/
@@ -86,6 +98,12 @@ class HUDRenderer {
   void drawCampaignBody(const HudModel &m, const PlanetInfo &p, const RateSample &h);
   void drawWifi(bool up);
   void drawFooter(const HudModel &m, time_t nowUtc);
+  // Pieces of the first-boot calibration card, split out of showTouchPrompt()
+  // only because they are the two that are drawn rather than laid out: a
+  // reticle with a hand tapping its centre, and the diagonal hazard bar along
+  // the card's bottom edge.
+  void drawCalReticle(int16_t x, int16_t y, int16_t s);
+  void drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h);
   // A full-screen event announcement: the new-order dispatch, or a verdict on
   // one that has ended. Takes the whole panel — no frame chrome, no carousel,
   // no clocks — because it is meant to interrupt, and stays up until it is
@@ -132,9 +150,13 @@ class HUDRenderer {
   // An empty track carrying a centred caption, for an objective with no
   // percentage to show at all.
   void drawIdleTrack(int16_t capY, int16_t barY, int16_t barH, const String &label);
-  // The four-value strip. `accent` tints the enemy-regen column.
+  // The stat strip. `accent` tints the enemy-regen column. `countStyle` swaps
+  // the PUSH/REGEN pair -- which a count objective's bar is not moving on, and
+  // which read "--" on every count card by construction -- for a single ETA
+  // column carrying `eta`; empty `eta` shows the usual dash.
   void drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRate, float rate,
-                 uint16_t accent);
+                 uint16_t accent, const String &eta = String(),
+                 bool countStyle = false);
   // The order's countdown and title, on their own plate bottom-right of the
   // art. The clock ticks every second, so it repaints independently.
   void drawCardClocks(const HudModel &m, time_t nowUtc);
@@ -181,6 +203,7 @@ class HUDRenderer {
   // geometry) is detected even when the underlying data (contentSignature)
   // didn't change — only which page is being looked at did.
   bool _lastCardMode = false;
+  String _headerSig;   // last-painted header row (type word, tier, pip row)
   String _contentSig;  // last-painted body signature
   String _targetSig;   // last-painted card signature
   String _campaignSig; // last-painted campaign-card signature

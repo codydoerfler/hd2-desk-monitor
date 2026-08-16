@@ -154,12 +154,22 @@ static String sectorLabel(const String &sector) {
 // This used to zero-pad to six digits ("013,637") so the footer's left block
 // kept a constant width and did not twitch as divers came and went. The
 // padding read as part of the number rather than as alignment, so it is gone;
-// the callers hold their own width instead — see kCountBoxW below and the
-// fixed-width column boxes in drawCampaignBody().
-// Width to clear for a formatCount() field, in FONT_BODY. Six grouped digits
-// ("999,999") is past any plausible diver count, so the box never has to grow
-// mid-frame and the number never has to be padded to fill it.
-static constexpr int16_t kCountBoxW = 62;
+// the callers hold their own width instead — the strip's fixed column boxes
+// now, the footer's own having gone with the diver count it cleared for.
+// Width to clear for the footer's reward, in FONT_VALUE. Four digits is well
+// past any medal award the game has issued, but the row has the space and a
+// clipped number is a worse failure than a wide box; holding the box fixed
+// also keeps a drop from 120 to 45 from leaving the hundreds digit standing.
+static constexpr int16_t kRewardBoxW = 56;
+
+// The footer's reward block, end to end, and the gap it leaves before the sync
+// clock. That gap is where the uncalibrated-touch hint goes: it was left empty
+// deliberately when the footer was reworked, and this is a caption that earns
+// it -- a call to action that removes itself the moment it is acted on.
+// Derived rather than declared so it cannot drift from the block beside it.
+static constexpr int16_t kRewardBlockW = icons::medalW + footerIconGap + kRewardBoxW;
+static constexpr int16_t kHintX = cardX + kRewardBlockW;
+static constexpr int16_t kHintW = (contentR - syncBoxW) - kHintX;
 
 static String formatCount(uint32_t v) {
   char digits[16];
@@ -498,6 +508,7 @@ void HUDRenderer::begin() {
 
 void HUDRenderer::invalidate() {
   _chromeDrawn = false;
+  _headerSig = "";
   _contentSig = "";
   _targetSig = "";
   _campaignSig = "";
@@ -786,26 +797,83 @@ void HUDRenderer::drawStatusHeader(const String &title, int8_t tier, uint8_t pag
 
   _tft.setFreeFont(FONT_LABEL);
   const int16_t labelW = _tft.textWidth(label.c_str());
-  // Cleared to a fixed width rather than the label's own: "LIBERATION" giving
-  // way to "DEFENSE" as the carousel advances would otherwise leave its tail.
-  textBox(padX, headerY, 200, headerH, theme::bg, FONT_LABEL, theme::gold, ML_DATUM,
-          label);
+  // Cleared across the whole row up to the WiFi slot, not to the label's own
+  // width. Everything drawn after this -- the chip, the pips -- is positioned
+  // off labelW, so a long type word giving way to a short one ("EXTERMINATION"
+  // to "DEFENSE" as the carousel advances) slides them left and would strand
+  // the previous frame's copies to the right of the new ones. A fixed 200 was
+  // wide enough for the label's own tail and nothing else, which was invisible
+  // while this row was only ever painted onto a freshly-cleared screen.
+  textBox(padX, headerY, contentW - wifiSlotW, headerH, theme::bg, FONT_LABEL,
+          theme::gold, ML_DATUM, label);
 
   int16_t x = padX + labelW + libconGapX;
   if (tier >= 1 && tier <= 5) x = drawLibcon(x, headerY, headerH, tier);
 
   // Carousel position, just past the chip. Only drawn when there is more than
   // one page -- a single dot says nothing a blank row does not.
+  //
+  // The active pip is a filled square at full size against hollow outlines two
+  // pixels smaller all round, rather than same-size filled-vs-hollow: at this
+  // size the fill alone was a difference you had to go looking for from a desk
+  // away, and the one thing this row exists to say is which page you are on.
   if (pages > 1) {
     x += pipRowGap;
-    const int16_t py = headerY + (headerH - pipS) / 2;
     for (uint8_t i = 0; i < pages; i++, x += pipS + pipGap) {
-      if (i == page) _tft.fillRect(x, py, pipS, pipS, theme::gold);
-      else _tft.drawRect(x, py, pipS, pipS, theme::goldDim);
+      if (i == page) {
+        _tft.fillRect(x, headerY + (headerH - pipS) / 2, pipS, pipS, theme::gold);
+      } else {
+        const int16_t s = pipS - 2 * pipDimInset;
+        _tft.drawRect(x + pipDimInset, headerY + (headerH - s) / 2, s, s,
+                      theme::goldDim);
+      }
     }
   }
 
   drawRule(rule1Y);
+}
+
+// What the header row is currently saying, and the repaint that keeps it true.
+//
+// Split out of drawBody() because drawBody() is not what runs when the
+// carousel advances: a page step inside one Major Order leaves
+// contentSignature() unchanged, so update() repaints the card alone and this
+// row kept whatever it was painted with at the last full repaint. The pips
+// therefore never moved on hardware, and the objective-type word beside them
+// was equally stale -- an advance from a liberation target to a defence one
+// left "LIBERATION" over a defence card. Signature-guarded so calling it every
+// frame costs one string compare.
+void HUDRenderer::drawHeader(const HudModel &m) {
+  const uint8_t pages = pageCount(m);
+  const bool cardPage = pageIsCard(m, _pageIdx);
+
+  // The type word is what changes -- an order card names its objective, a
+  // campaign card is always a liberation, and the screens with no card keep
+  // the plain strip.
+  String type;
+  if (m.haveData) {
+    if (cardPage) {
+      const OrderTask *t = activeTask(m, _pageIdx);
+      const bool defending =
+          t && ((t->taskType == kTaskTypeDefend) || t->planet.event.active);
+      const bool liberating = t && taskIsLiberation(t->taskType);
+      // Same precedence the card body uses: a count objective names itself
+      // even when its planet happens to be under attack, because the count is
+      // what the order is asking for.
+      if (t && taskIsCount(*t)) type = countWords(t->taskType).header;
+      else type = defending ? F("DEFENSE") : (liberating ? F("LIBERATION") : F("OBJECTIVE"));
+    } else if (pages > 0) {
+      type = F("LIBERATION");
+    }
+  }
+
+  const int8_t tier = m.haveData ? libconTier(m) : 0;
+  const String sig =
+      type + "|" + String((int)tier) + "|" + String((int)pages) + "|" + String((int)_pageIdx);
+  if (sig == _headerSig) return;
+  _headerSig = sig;
+
+  drawStatusHeader(type, tier, pages, _pageIdx);
 }
 
 void HUDRenderer::drawWifi(bool up) {
@@ -819,9 +887,10 @@ void HUDRenderer::drawWifi(bool up) {
   const int16_t cy = headerY + headerH / 2;
   const char *label = up ? "WIFI" : "OFFLINE";
 
-  // Label right-aligned just left of the dot.
-  textBox(contentR - 110, headerY, 110 - (2 * dotR + 6), headerH, theme::bg,
-          FONT_LABEL, c, MR_DATUM, String(label));
+  // Label right-aligned just left of the dot. The slot width is shared with
+  // drawStatusHeader(), which clears the rest of the row up to its left edge.
+  textBox(contentR - wifiSlotW, headerY, wifiSlotW - (2 * dotR + 6), headerH,
+          theme::bg, FONT_LABEL, c, MR_DATUM, String(label));
 
   _tft.fillRect(dotCx - dotR, cy - dotR, 2 * dotR + 1, 2 * dotR + 1, theme::bg);
   _tft.fillCircle(dotCx, cy, dotR, c);
@@ -925,12 +994,26 @@ void HUDRenderer::drawArtBand(const PlanetInfo &p, int16_t h, const String &head
   drawFactionMark(p.owner);
 }
 
-// The four-value strip both cards close with: share of the galaxy's divers,
-// the head-count here, the players' push, and the enemy's regen. The last two
-// are the halves of the net rate the track above is moving at -- push minus
-// regen -- which is why they sit together rather than beside their own bars.
+// The stat strip both cards close with: share of the galaxy's divers, the
+// head-count here, the players' push, and the enemy's regen. The last two are
+// the halves of the net rate the track above is moving at -- push minus regen
+// -- which is why they sit together rather than beside their own bars.
+//
+// That pair only exists when the track above *is* a planet's own liberation or
+// defence. A count-style objective is measured against the order's goal
+// instead: nothing pushes the count but the war, and the planet's regen (when
+// it even has a planet) is not what the bar is moving on. Both columns were
+// therefore structurally "--" on every count card ever drawn -- not
+// occasionally, always -- so `eta` replaces them with the one forward-looking
+// figure that payload does support, and the row closes at three columns.
+//
+// The band is cleared as a unit first because the column count is no longer
+// fixed: a carousel step from a liberation target to a count one repaints the
+// card without repainting the screen, and four columns' worth of separators
+// and captions would otherwise show through three columns' worth of paint.
 void HUDRenderer::drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRate,
-                            float rate, uint16_t accent) {
+                            float rate, uint16_t accent, const String &eta,
+                            bool countStyle) {
   const float regenPctPerHour =
       p.maxHealth > 0 ? p.regenPerSecond * 3600.0f * 100.0f / (float)p.maxHealth : 0.0f;
   const float pushPctPerHour = (haveRate ? rate : 0.0f) + regenPctPerHour;
@@ -961,15 +1044,25 @@ void HUDRenderer::drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRat
     snprintf(regen, sizeof(regen), "--");
   }
 
-  const int16_t colW = contentW / stripCols;
   // "/H" on the two rates because they are per-hour and the values carry only
   // a percent sign; without it "2.593%" reads as a position, not a speed.
-  const struct { const char *cap; const char *v; uint16_t c; } cols[stripCols] = {
-      {"SHARE",  share, theme::gold}, {"DIVERS",   here,  theme::text},
-      {"PUSH /H", push, theme::blue}, {"REGEN /H", regen, accent},
-  };
+  struct Col { const char *cap; String v; uint16_t c; };
+  Col cols[stripCols];
+  uint8_t n = 0;
+  cols[n++] = {"SHARE", share, theme::gold};
+  cols[n++] = {"DIVERS", here, theme::text};
+  if (countStyle) {
+    cols[n++] = {"ETA", eta.length() ? eta : String(F("--")), theme::blue};
+  } else {
+    cols[n++] = {"PUSH /H", push, theme::blue};
+    cols[n++] = {"REGEN /H", regen, accent};
+  }
+
   const int16_t stripH = (stripValY + stripValH) - stripCapY;
-  for (int i = 0; i < stripCols; i++) {
+  _tft.fillRect(padX, stripCapY, contentW, stripH, theme::bg);
+
+  const int16_t colW = contentW / n;
+  for (uint8_t i = 0; i < n; i++) {
     const int16_t x = padX + i * colW;
     // nullptr font == TFT_eSPI's built-in 6x8 GLCD face; see setFreeFont().
     textBox(x, stripCapY, colW - 6, stripCapH, theme::bg, nullptr, theme::grey,
@@ -1094,7 +1187,27 @@ void HUDRenderer::drawCard(const HudModel &m) {
                           : String(F("AWAITING TELEMETRY")));
   }
 
-  drawStrip(m, p, r.have, r.pct, accent);
+  // A count objective's strip trades PUSH/REGEN for how long the goal is still
+  // away at the rate the count is actually moving -- which is the question the
+  // card is being asked, since the order's own clock is on the plate above it.
+  // Measured off the same two samples the bar's %/h is, so it says "--" in the
+  // same places that does rather than extrapolating from one poll.
+  String eta;
+  if (taskIsCount(*t)) {
+    const float remain = 100.0f - taskPercent(*t);
+    if (t->complete || remain <= 0.0f) {
+      eta = F("MET");
+    } else if (cr.have && cr.pct > 0.0f) {
+      const double hours = (double)remain / cr.pct;
+      // Past three months the figure stops being a forecast and starts being
+      // arithmetic about a rate nobody expects to hold; say so rather than
+      // print a date in the next war.
+      eta = hours > 99.0 * 24.0 ? String(F("> 99d"))
+                                : formatDuration((int64_t)(hours * 3600.0));
+    }
+  }
+
+  drawStrip(m, p, r.have, r.pct, accent, eta, taskIsCount(*t));
   _clockSig = "";  // the plate went down with the art
 }
 
@@ -1154,29 +1267,13 @@ void HUDRenderer::drawBody(const HudModel &m, time_t nowUtc) {
 
   _cardMode = pageIsCard(m, _pageIdx);
   const bool onCampaign = !_cardMode && pageCount(m) > 0;
-  const uint8_t pages = pageCount(m);
 
   // Every screen wears the same header row now: what it is showing, the
-  // LIBCON reading, and where in the carousel it sits. The type word is what
-  // changes -- an order card names its objective, a campaign card is always
-  // a liberation, and the screens with no card keep the plain strip.
-  String type;
-  if (m.haveData) {
-    if (_cardMode) {
-      const OrderTask *t = activeTask(m, _pageIdx);
-      const bool defending =
-          t && ((t->taskType == kTaskTypeDefend) || t->planet.event.active);
-      const bool liberating = t && taskIsLiberation(t->taskType);
-      // Same precedence the card body uses: a count objective names itself
-      // even when its planet happens to be under attack, because the count is
-      // what the order is asking for.
-      if (t && taskIsCount(*t)) type = countWords(t->taskType).header;
-      else type = defending ? F("DEFENSE") : (liberating ? F("LIBERATION") : F("OBJECTIVE"));
-    } else if (onCampaign) {
-      type = F("LIBERATION");
-    }
-  }
-  drawStatusHeader(type, m.haveData ? libconTier(m) : 0, pages, _pageIdx);
+  // LIBCON reading, and where in the carousel it sits. Forced through rather
+  // than left to its signature: the row was just cleared with the rest of the
+  // frame, whatever it happens to say next.
+  _headerSig = "";
+  drawHeader(m);
   _wifiSig = -1;  // the repaint wiped the dot
 
   if (!m.haveData) {
@@ -1246,10 +1343,36 @@ void HUDRenderer::drawIdleBody(const HudModel &m) {
            theme::gold);
 }
 
+// A clock face at caption scale: a ring with an hour and a minute hand. Small
+// enough to sit inside the footer row beside a 6x8 time, and drawn from
+// primitives rather than added to hud_icons.h -- the existing clock bitmap is
+// 24px, three times this row's budget, and the image is at 96% of its flash
+// slot. The hands are drawn as plain runs because at r=5 an angled line is
+// three pixels of noise; up and right reads as "a clock" and nothing else.
+static void drawClockGlyph(TFT_eSPI &tft, int16_t cx, int16_t cy, uint16_t c) {
+  tft.drawCircle(cx, cy, syncGlyphR, c);
+  tft.drawFastVLine(cx, cy - 3, 4, c);
+  tft.drawFastHLine(cx, cy, 3, c);
+}
+
+// The footer row: the order's reward at the left, the sync clock at the right.
+//
+// It used to open with the head-count on the planet being shown, which was the
+// same number the strip's DIVERS column had already given a caption to two
+// rows above -- one planet's divers, printed twice on one screen. The strip is
+// where it belongs (it sits beside SHARE, which is that count over the
+// galaxy's), so this row lost it.
+//
+// What is left is deliberately not repacked to fill the width. The reward is
+// the row's one headline and takes the left edge and FONT_VALUE for it; the
+// sync time is a staleness indicator, not a reading anyone comes to the panel
+// for, so it shrank to a glyph and a 6x8 HH:MM at the right. The space between
+// them stays empty on purpose: everything else this row could carry is either
+// already on the card or would be filler.
 void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
   String synced;
   if (!m.haveData) {
-    synced = F("NO DATA YET");
+    synced = F("NO DATA");
   } else {
     char t[8] = "--:--";
     if (m.lastSuccess > 0) {
@@ -1261,7 +1384,12 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
       gmtime_r(&ls, &tmv);
       snprintf(t, sizeof(t), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
     }
-    synced = (m.stale ? String(F("STALE ")) : String(F("SYNCED "))) + t;
+    // "SYNCED" is gone: the word cost the row 150px of body text to qualify a
+    // clock reading that is only interesting when it is old. "STALE" stays,
+    // because that is the case where the number above it cannot be trusted and
+    // the row has one line in which to say so — at caption size it costs 36px,
+    // not 150, and colour alone at 6x8 is a thin thing to hang it on.
+    synced = m.stale ? String(F("STALE ")) + t : String(t);
   }
 
   // Reward, as a medal icon and a bare number — "REWARD n MEDALS" spelled out
@@ -1271,58 +1399,57 @@ void HUDRenderer::drawFooter(const HudModel &m, time_t nowUtc) {
     reward = String(m.order.rewardAmount);
   }
 
-  // Divers on the planet currently on screen. Both card types have one; the
-  // idle screen does not.
-  String divers;
-  const PlanetInfo *shown = nullptr;
-  if (_cardMode) {
-    const OrderTask *t = activeTask(m, _pageIdx);
-    if (t) shown = &t->planet;
-  } else if (pageCount(m) > 0 && _pageIdx < m.campaignCount) {
-    shown = &m.campaigns[_pageIdx];
-  }
-  if (shown) {
-    divers = shown->valid ? formatCount(shown->playerCount) : String("--");
-  }
-
-  const String sig =
-      synced + "|" + reward + "|" + divers + "|" + (m.stale ? "1" : "0");
+  const String sig = synced + "|" + reward + "|" + (m.stale ? "1" : "0") + "|" +
+                     (m.touchUncalibrated ? "1" : "0");
   if (sig == _footerSig) return;
   _footerSig = sig;
 
   const int16_t y = footerY;
   const int16_t h = footerH;
-  const uint16_t syncColor = m.stale ? theme::goldMute : theme::grey;
+  // Amber rather than the goldMute this line used to fade to. Muting was
+  // legible while it was 150px of body text; shrunk to a 6x8 caption it made
+  // the one state worth noticing the hardest thing on the panel to read, which
+  // is backwards. Stale data is a caution, so it takes the caution colour.
+  const uint16_t syncColor = m.stale ? theme::amber : theme::grey;
 
-  _tft.setFreeFont(FONT_BODY);
-
-  // --- left: divers present -----------------------------------------------
-  if (divers.length()) {
-    // Cleared to a fixed width rather than to the width of this frame's text:
-    // the count is no longer zero-padded, so "9,412" following "18,204" would
-    // otherwise leave the old digits' tail on screen.
-    const int16_t w = icons::diverW + footIconGap + kCountBoxW;
-    textBox(cardX, y, w, h, theme::bg, FONT_BODY, theme::gold, ML_DATUM, divers,
-            icons::diverW + footIconGap);
-    _tft.drawBitmap(cardX, y + (h - icons::diverH) / 2, icons::diver, icons::diverW,
-                    icons::diverH, theme::gold);
+  // --- left: the order's reward -------------------------------------------
+  // Cleared to a fixed width rather than the number's own: an order paying 45
+  // following one that paid 120 would otherwise leave the hundreds digit
+  // standing. The box holds four digits, well past any reward issued so far.
+  const int16_t rewardW = icons::medalW + footerIconGap + kRewardBoxW;
+  textBox(cardX, y, rewardW, h, theme::bg, FONT_VALUE, theme::gold, ML_DATUM,
+          reward, icons::medalW + footerIconGap);
+  if (reward.length()) {
+    _tft.drawBitmap(cardX, y + (h - icons::medalH) / 2, icons::medal, icons::medalW,
+                    icons::medalH, theme::gold);
   }
+
+  // --- middle: the uncalibrated-touch hint ---------------------------------
+  // Painted unconditionally, with an empty string when there is nothing to say,
+  // so the frame calibration succeeds on is the frame the line disappears in --
+  // the box clears itself and, because calibrated() never goes back to false on
+  // its own, never comes back. theme::grey and the 6x8 face: the same weight as
+  // the sync time across from it, which is the right of way for a caption that
+  // is only addressed to a unit nobody has set up yet. Deliberately not
+  // goldMute -- gold at this size is what the reward beside it is using, and
+  // muted gold on this background was already found to be the least legible
+  // thing on the panel when the footer was reworked.
+  const String hint =
+      m.touchUncalibrated ? String(F("HOLD SCREEN AT POWER-ON TO CALIBRATE")) : String();
+  textBox(kHintX, y, kHintW, h, theme::bg, nullptr, theme::grey, MC_DATUM, hint);
 
   // --- right: last sync ----------------------------------------------------
   // The link state moved to the header row with the LIBCON chip, so this row
   // is the sync line's alone and it can run to the content edge.
-  textBox(contentR - 150, y, 150, h, theme::bg, FONT_BODY, syncColor, MR_DATUM,
-          synced);
+  textBox(contentR - syncBoxW, y, syncBoxW, h, theme::bg, nullptr, syncColor,
+          MR_DATUM, synced);
+  // nullptr font == the built-in 6x8 GLCD face, the same one the box above was
+  // set in; the glyph rides just left of whatever width that came to, and sits
+  // inside the box's own clear so the previous frame's copy goes with it.
+  _tft.setFreeFont(nullptr);
+  const int16_t timeW = _tft.textWidth(synced.c_str());
+  drawClockGlyph(_tft, contentR - timeW - syncGap - syncGlyphR, y + h / 2, syncColor);
 
-  // --- centre: the order's reward -----------------------------------------
-  if (reward.length()) {
-    const int16_t w = icons::medalW + footerIconGap + _tft.textWidth(reward.c_str());
-    const int16_t x = cardX + (cardW - w) / 2;
-    textBox(x, y, w, h, theme::bg, FONT_BODY, theme::gold, ML_DATUM, reward,
-            icons::medalW + footerIconGap);
-    _tft.drawBitmap(x, y + (h - icons::medalH) / 2, icons::medal, icons::medalW,
-                    icons::medalH, theme::gold);
-  }
   (void)nowUtc;
 }
 
@@ -1607,6 +1734,12 @@ void HUDRenderer::update(const HudModel &m, time_t nowUtc) {
 
   _lastCardMode = cardModeNow;
 
+  // After the branch above, not before: a drawBody() repaint clears the row
+  // this paints into. Its own signature makes the second call a no-op on the
+  // frames where drawBody() already ran, and on a carousel step -- where none
+  // of the branches above touch the header -- it is the only thing that moves
+  // the pips.
+  drawHeader(m);
   if (_cardMode) drawCardClocks(m, nowUtc);
   drawFooter(m, nowUtc);
   drawWifi(m.wifiUp);
@@ -1650,5 +1783,215 @@ void HUDRenderer::showPortal(const char *ssid, const char *pass) {
 
   textBox(padX, 224, contentW, 20, theme::bg, FONT_BODY, theme::grey, MC_DATUM,
           F("If no page opens, browse to 192.168.4.1"));
+  _chromeDrawn = false;
+}
+
+// ---------------------------------------------------------------------------
+//  First-boot touch calibration prompt
+//
+//  The reference art is a photograph of a ship's bridge with a warning card
+//  over it. What is reproduced here is the card: the bands and their
+//  proportions, the badge, the reticle, the hazard bar. The photograph and the
+//  game's wordmark are not, deliberately -- see the note over the cal*
+//  constants in config.h.
+//
+//  Drawn from primitives rather than added to hud_icons.h. A 76px reticle as a
+//  1-bit bitmap is 722 bytes of an image already sitting at 96% of its flash
+//  slot, for a shape that is two circles and eight straight runs; the hazard
+//  bar could not be a bitmap at all without storing it at full width.
+// ---------------------------------------------------------------------------
+
+// A reticle with a hand tapping its centre, in an `s`-square box at (x,y).
+// Ring, four crosshair ticks through it, a small target at the middle, and a
+// bracket at each corner of the box -- the reference's own construction. The
+// hand comes in from the lower right at 45 degrees with the fingertip on the
+// centre dot, which is what makes it read as "put a finger here" rather than
+// as a target to be shot at; a hand standing upright in the middle of the ring
+// reads as a raised finger and nothing else.
+//
+// Sized in fractions of `s` only where the fraction is the point. The rest is
+// in pixels: this is one icon at one size, and naming a constant for the
+// fingertip's offset would suggest it means something elsewhere.
+void HUDRenderer::drawCalReticle(int16_t x, int16_t y, int16_t s) {
+  const int16_t cx = x + s / 2, cy = y + s / 2;
+  const int16_t r = s * 13 / 40;  // 29 at s=92, leaving the ticks room outside
+
+  // Three concentric circles: a 1px ring at this diameter is a dotted line by
+  // the time the panel's own subpixel structure has had it, and the reference's
+  // ring is heavy enough to carry the icon on its own.
+  for (int16_t i = 0; i < 3; i++) _tft.drawCircle(cx, cy, r - i, theme::gold);
+
+  // Crosshair ticks, crossing the ring rather than stopping outside it.
+  const int16_t t0 = r - 6, t1 = r + 9, tw = t1 - t0;
+  _tft.fillRect(cx - 1, cy - t1, 3, tw, theme::gold);
+  _tft.fillRect(cx - 1, cy + t0, 3, tw, theme::gold);
+  _tft.fillRect(cx - t1, cy - 1, tw, 3, theme::gold);
+  _tft.fillRect(cx + t0, cy - 1, tw, 3, theme::gold);
+
+  // The target at the middle, which is what the finger is pointing at.
+  _tft.drawCircle(cx, cy, 10, theme::gold);
+  _tft.drawCircle(cx, cy, 9, theme::gold);
+  _tft.fillCircle(cx, cy, 3, theme::gold);
+
+  // Corner brackets, 2px thick, drawn as pairs of runs -- there is no
+  // drawLine() here and none is needed for right angles.
+  //
+  // Three of them, not four: the hand comes in over the bottom-right corner
+  // and covers it, exactly as it does in the reference. Drawing one there and
+  // letting the hand's halo bite a piece out of it looks like damage.
+  const int16_t b = 15, x1 = x + s - 1, y1 = y + s - 1;
+  for (int16_t i = 0; i < 2; i++) {
+    _tft.drawFastHLine(x, y + i, b, theme::gold);
+    _tft.drawFastVLine(x + i, y, b, theme::gold);
+    _tft.drawFastHLine(x1 - b + 1, y + i, b, theme::gold);
+    _tft.drawFastVLine(x1 - i, y, b, theme::gold);
+    _tft.drawFastHLine(x, y1 - i, b, theme::gold);
+    _tft.drawFastVLine(x + i, y1 - b + 1, b, theme::gold);
+  }
+
+  // The hand, drawn twice: once in the card's own fill, three pixels proud all
+  // round, then in gold on top of that. The halo is not decoration -- the hand
+  // crosses the ring and the bottom-right bracket, and without a gap the three
+  // gold shapes merge into one blob. The reference solves the same problem by
+  // outlining the hand in black.
+  for (int8_t pass = 0; pass < 2; pass++) {
+    const uint16_t c = pass ? theme::gold : theme::panel;
+    const int16_t g = pass ? 0 : 2;
+
+    // Index finger: a bar at 45 degrees, from the centre dot down to the
+    // knuckles. Two triangles, because a quad is what four points make and
+    // there is no primitive for one.
+    const int16_t ax = cx - g, ay = cy + 4;
+    const int16_t bx = cx + 4, by = cy - g;
+    const int16_t px = cx + 22 + g, py = cy + 16;
+    const int16_t qx = cx + 16, qy = cy + 22 + g;
+    _tft.fillTriangle(ax, ay, bx, by, px, py, c);
+    _tft.fillTriangle(ax, ay, px, py, qx, qy, c);
+    _tft.fillCircle(cx + 2, cy + 2, 2 + g, c);  // rounded fingertip
+
+    // Folded fingers and palm: a rounded block below and right of that, and a
+    // thumb bump on the near side.
+    const int16_t hx = cx + 12 - g, hy = cy + 13 - g;
+    const int16_t hw = 25 + 2 * g, hh = 23 + 2 * g, hr = 6 + g;
+    _tft.fillRect(hx + hr, hy, hw - 2 * hr, hh, c);
+    _tft.fillRect(hx, hy + hr, hw, hh - 2 * hr, c);
+    _tft.fillCircle(hx + hr, hy + hr, hr, c);
+    _tft.fillCircle(hx + hw - hr - 1, hy + hr, hr, c);
+    _tft.fillCircle(hx + hr, hy + hh - hr - 1, hr, c);
+    _tft.fillCircle(hx + hw - hr - 1, hy + hh - hr - 1, hr, c);
+    _tft.fillCircle(cx + 10, cy + 31, 6 + g, c);
+  }
+}
+
+// The diagonal hazard bar along the card's bottom edge.
+//
+// Built as one horizontal run per row rather than as diagonal lines: at 45
+// degrees a stripe's start moves exactly one pixel per row, so the whole band
+// is a stack of offset runs -- which is both what the available primitives can
+// draw and faster than the general case would be.
+void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h) {
+  _tft.fillRect(x, y, w, h, theme::bg);
+  for (int16_t row = 0; row < h; row++) {
+    // Stripes lean up-and-to-the-right, so their start walks left as the row
+    // walks down. The modulo keeps the first one on screen for wide bars.
+    for (int16_t sx = -(row % calStripePitch) - calStripePitch; sx < w;
+         sx += calStripePitch) {
+      int16_t a = sx, b = sx + calStripeInk;
+      if (b <= 0 || a >= w) continue;
+      if (a < 0) a = 0;
+      if (b > w) b = w;
+      _tft.drawFastHLine(x + a, y + row, b - a, theme::gold);
+    }
+  }
+}
+
+void HUDRenderer::showTouchPrompt() {
+  invalidate();
+  _cardMode = false;
+  _tft.fillScreen(theme::bg);
+  drawFrame();
+  drawStatusHeader();
+
+  // --- the card ------------------------------------------------------------
+  _tft.fillRect(calCardX, calCardY, calCardW, calCardH, theme::panel);
+  _tft.drawRect(calCardX, calCardY, calCardW, calCardH, theme::gold);
+  const int16_t inX = calCardX + 1, inW = calCardW - 2;
+  const int16_t headRuleY = calCardY + calHeadH;
+  const int16_t bodyY = headRuleY + 1;
+  const int16_t stripeY = calCardY + calCardH - calStripeH;
+
+  // --- header: badge, title, rule ------------------------------------------
+  const int16_t badgeX = calCardX + calBadgeInset;
+  const int16_t badgeY = calCardY + 1 + (calHeadH - 1 - calBadgeH) / 2;
+  // A gold tab whose trailing edge leans outward on the way down, so the tab is
+  // wider at its foot than at its head. The slant is what stops it reading as a
+  // plain rectangle at 40px, and its direction is the reference's.
+  _tft.fillRect(badgeX, badgeY, calBadgeW - calBadgeSlant, calBadgeH, theme::gold);
+  _tft.fillTriangle(badgeX + calBadgeW - calBadgeSlant, badgeY,
+                    badgeX + calBadgeW - calBadgeSlant, badgeY + calBadgeH - 1,
+                    badgeX + calBadgeW, badgeY + calBadgeH - 1, theme::gold);
+  // The warning triangle is knocked out of the tab in the card's own fill
+  // colour, with a gold exclamation inside it -- gold-on-dark-on-gold, exactly
+  // as in the reference. (The task file's parenthetical suggested theme::red
+  // here; the reference supersedes it. One constant if that is wrong.)
+  const int16_t tcx = badgeX + (calBadgeW - calBadgeSlant) / 2;
+  const int16_t tTop = badgeY + 5, tBot = badgeY + calBadgeH - 5;
+  _tft.fillTriangle(tcx, tTop, tcx - 11, tBot, tcx + 11, tBot, theme::panel);
+  _tft.fillRect(tcx - 1, tTop + 8, 3, 7, theme::gold);
+  _tft.fillRect(tcx - 1, tBot - 4, 3, 3, theme::gold);
+
+  // Label weight, not value weight: "TOUCH CALIBRATION REQUIRED" is 394px at
+  // FONT_VALUE and there are 364 to put it in -- and label weight is also the
+  // proportionally right answer, the reference's header caps being about 7.5%
+  // of the card's height, which on 204px is the ~13px FreeSansBold9pt gives.
+  const int16_t titleX = badgeX + calBadgeW + calTitleGap;
+  textBox(titleX, badgeY, calCardX + calCardW - calTextPadR - titleX, calBadgeH,
+          theme::panel, FONT_LABEL, theme::gold, ML_DATUM,
+          F("TOUCH CALIBRATION REQUIRED"));
+  _tft.drawFastHLine(inX, headRuleY, inW, theme::gold);
+
+  // --- body: reticle, then the copy beside it ------------------------------
+  const int16_t bodyH = stripeY - 1 - bodyY;
+  drawCalReticle(calCardX + calIconInset, bodyY + (bodyH - calIconS) / 2, calIconS);
+
+  // TL_DATUM, unlike everything else on the panel -- see the note over the
+  // calAddrDy/calLineH constants. These are the HUD's only mixed-case rows and
+  // the middle datum's ascent-only centring drops their descenders out of the
+  // sprite unless the rows are made a third taller than the type needs.
+  const int16_t textX = calCardX + calIconInset + calIconS + calTextGap;
+  const int16_t textW = calCardX + calCardW - calTextPadR - textX;
+  textBox(textX, bodyY + calAddrDy, textW, calAddrH, theme::panel, FONT_LABEL,
+          theme::text, TL_DATUM, F("Helldiver,"));
+
+  // Written for this panel rather than lifted from the reference: the wording
+  // there is the game's, and this one has to say what this device actually
+  // wants, which is a calibration and not a mission.
+  int16_t ly = bodyY + calCopyDy;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, F("This terminal's touch interface is"));
+  ly += calLineH;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, F("not yet calibrated."));
+  ly += calLineH + calParaGap;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::grey,
+          TL_DATUM, F("Run a calibration to ensure accurate"));
+  ly += calLineH;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::grey,
+          TL_DATUM, F("targeting and stratagem deployment."));
+
+  // --- hazard bar ----------------------------------------------------------
+  // stripeY-1 is the rule; the stripes run from stripeY down to the row above
+  // the card's bottom border, which is calStripeH-1 rows in all.
+  _tft.drawFastHLine(inX, stripeY - 1, inW, theme::gold);
+  drawHazardBar(inX, stripeY, inW, calStripeH - 1);
+
+  // --- the way out ---------------------------------------------------------
+  // The only affordance on the screen, so it is named outright. It does not
+  // promise the wait is unlimited, because it is not: main.cpp gives this a
+  // bounded wait and boots on regardless, and a unit nobody was standing in
+  // front of ends up on the HUD with the footer hint carrying the offer.
+  textBox(padX, calCtaY - calCtaH / 2, contentW, calCtaH, theme::bg, FONT_LABEL,
+          theme::gold, MC_DATUM, F("TOUCH ANYWHERE TO BEGIN"));
+
   _chromeDrawn = false;
 }

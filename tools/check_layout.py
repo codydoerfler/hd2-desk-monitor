@@ -66,6 +66,16 @@ def w(font, s):
     return sum(g.get(ord(c), g[0x20]) for c in s)
 
 
+# TFT_eSPI's built-in font 1 (setFreeFont(nullptr)): a fixed 5x7 cell plus one
+# column of spacing. No table to load -- the advance is the same for every
+# character. Used by the strip/bar captions and the footer's sync clock.
+GLCD_W, GLCD_H = 6, 8
+
+
+def glcd(s):
+    return GLCD_W * len(s)
+
+
 def icon_dims(path="src/hud_icons.h"):
     """{icon name: (w, h)} from the generated bitmap header."""
     txt = open(path).read()
@@ -119,6 +129,7 @@ kTileW = (contentW - 2 * tileGap) // 3   # 142
 kStatW = (contentW - statGap) // 2       # 216
 kStatInsetX = 12
 kTargetNameX = padX + ICONS["target"][0] + targetIconGap
+kRewardBoxW = 56
 
 # Mirrors factionIcon() in hud_renderer.cpp. "Humans" is absent there too: the
 # SEAF badge is text-only, like an owner with no icon.
@@ -261,7 +272,7 @@ for label, font, h, chars in [
         # barCapH/stripCapH is not a bound worth asserting.
         ("strip value row", LABEL, stripValH, CAPS),
         ("clock plate row", LABEL, plateClockH, CAPS),
-        ("footer count row", BODY, footerH, "0123456789,")]:
+        ("footer reward row", VALUE, footerH, "0123456789")]:
     need = glyph_span(font, chars)
     ok = h >= need
     print(f"{'ok ' if ok else 'BAD'} {label:<52} {h:>4}px (needs {need})")
@@ -332,13 +343,23 @@ for lbl in ["NETWORK", "PASSWORD"]:
 for val in ["HD2-Monitor", "helldive"]:
     check(f'value "{val}" @12pt', w(VALUE, val), sinner)
 
-print("\n=== footer (local clock time, no unit suffix) ===")
-for s in ["SYNCED 14:32", "SYNCED 08:32", "STALE - LAST 14:32", "NO DATA YET"]:
-    check(f'left "{s}"', w(BODY, s), contentW // 2)
+print("\n=== footer (reward at the left, sync clock at the right) ===")
+# The reward is the row's headline now, set at 12pt bold in a fixed box so a
+# drop from 120 to 45 medals cannot leave the hundreds digit standing.
 for r in ["40", "150", "1000"]:
-    check(f'right medal + "{r}"',
-          ICONS["medal"][0] + footerIconGap + w(BODY, r), contentW // 2)
+    check(f'reward "{r}" @12pt bold', w(VALUE, r), kRewardBoxW)
 check("medal height in the footer row", ICONS["medal"][1], footerH)
+# Nothing is drawn between the two blocks, so this is slack, not a tight fit --
+# but it is what guarantees a four-digit reward cannot reach the clock.
+check("reward block clear of the sync box",
+      cardX + ICONS["medal"][0] + footerIconGap + kRewardBoxW,
+      contentR - syncBoxW)
+# The sync clock: a ring glyph and HH:MM in the built-in 6x8 face, right
+# aligned. Staleness is carried by a caption-size prefix as well as the colour
+# -- an amber tint alone is not a difference you can name at this size.
+for s in ["14:32", "STALE 13:53", "NO DATA"]:
+    check(f'clock glyph + "{s}" @6x8', 2 * syncGlyphR + syncGap + glcd(s), syncBoxW)
+check("6x8 sync row inside the footer", GLCD_H, footerH)
 
 print("\n=== centred status lines ===")
 for s in ["ESTABLISHING UPLINK", "SUPER EARTH", "WIFI SETUP"]:
@@ -365,15 +386,124 @@ check("hd2LogoBoot width in the content column", blw, contentW)
 check("hd2LogoBoot above the boot caption (y=48)", 48 + blh, 232)
 check("boot status line inside the frame", 264 + 20, frameY + frameH)
 
-print("\n=== header row (label + wifi block) ===")
-se = w(LABEL, "SUPER EARTH")
-check('"SUPER EARTH" @9pt bold in its box', se, 200)
-check("label vs the WiFi block", padX + se, contentR - 110)
-check('"OFFLINE" @9pt bold in wifi box', w(LABEL, "OFFLINE"), 110 - (2 * 5 + 6))
+print("\n=== header row (type word, LIBCON chip, carousel pips, wifi block) ===")
+# Every word drawStatusHeader() can be handed: the plain strip, the two planet
+# objective types, and the count-task headers from countWords().
+HEADER_WORDS = ["SUPER EARTH", "LIBERATION", "DEFENSE", "OBJECTIVE",
+                "EXTRACTION", "ERADICATION", "OPERATIONS"]
+for s in HEADER_WORDS:
+    check(f'"{s}" @9pt bold in its box', w(LABEL, s), contentW - wifiSlotW)
+# The chip and the pips are packed off the type word's measured width, so the
+# longest word is the one that has to leave room for them. Five pips is the
+# cap: four Major Order tasks, or five campaigns when there is no order.
+MAX_PIPS = 5
+pipRowW = pipRowGap + MAX_PIPS * pipS + (MAX_PIPS - 1) * pipGap
+for s in HEADER_WORDS:
+    check(f'"{s}" + chip + {MAX_PIPS} pips vs the WiFi slot',
+          padX + w(LABEL, s) + libconGapX + libconW + pipRowW,
+          contentR - wifiSlotW)
+check("active pip inside the header row", pipS, headerH)
+check('"OFFLINE" @9pt bold in wifi box',
+      w(LABEL, "OFFLINE"), wifiSlotW - (2 * footDotR + 6))
 
 print("\n=== faction badge ===")
 for n in sorted(set(FACTION_ICON.values())):
     check(f'badge icon "{n}" height', ICONS[n][1], badgeH - 2)
 check("badge height in the target row", badgeH, targetH)
+
+# --- first-boot touch calibration prompt ------------------------------------
+#
+# The one screen on the HUD set in mixed case, which makes it the one screen
+# whose rows have to reserve descender space -- and the reason the checks below
+# measure the real strings rather than the CAPS alphabet everything else uses.
+print("\n=== first-boot calibration card: bands ===")
+calHeadRuleY = calCardY + calHeadH
+calBodyY = calHeadRuleY + 1
+calStripeY = calCardY + calCardH - calStripeH
+grid("calibration card bands", [("head", calCardY + 1, calHeadH - 1),
+                                ("headRule", calHeadRuleY, 1),
+                                ("body", calBodyY, calStripeY - 1 - calBodyY),
+                                ("stripeRule", calStripeY - 1, 1),
+                                ("stripes", calStripeY, calStripeH - 1)],
+     calCardY, calCardY + calCardH - 1)
+check("card clears the SUPER EARTH rule", rule1Y + 1, calCardY)
+check("card bottom clears the CTA line", calCardY + calCardH,
+      calCtaY - calCtaH // 2)
+check("CTA line inside the frame", calCtaY + calCtaH // 2, frameY + frameH - 1)
+
+print("=== first-boot calibration card: body rows ===")
+calBodyH = calStripeY - 1 - calBodyY
+calTextX = calCardX + calIconInset + calIconS + calTextGap
+calTextW = calCardX + calCardW - calTextPadR - calTextX
+print(f"    icon {calIconS}x{calIconS} at x={calCardX + calIconInset}, "
+      f"text column x={calTextX} w={calTextW}px")
+check("icon box inside the body band", calIconS, calBodyH)
+check("icon box clear of the text column", calCardX + calIconInset + calIconS,
+      calTextX)
+CAL_ROWS = [("address", calAddrDy, calAddrH),
+            ("copy1", calCopyDy, calLineH),
+            ("copy2", calCopyDy + calLineH, calLineH),
+            ("copy3", calCopyDy + 2 * calLineH + calParaGap, calLineH),
+            ("copy4", calCopyDy + 3 * calLineH + calParaGap, calLineH)]
+prev_name, prev_bottom = "body top", 0
+for name, dy, h in CAL_ROWS:
+    ok = dy >= prev_bottom
+    print(f"{'ok ' if ok else 'BAD'} {name:<10} dy {dy:>3}..{dy + h - 1:>3}   "
+          f"(after {prev_name} @{prev_bottom})")
+    if not ok:
+        fail.append(f"cal row {name} overlaps {prev_name}")
+    prev_name, prev_bottom = name, dy + h
+check("cal text rows inside the body band", prev_bottom, calBodyH)
+
+# TFT_eSPI puts a free font's baseline glyph_ab px below a TL_DATUM anchor
+# (drawString() adds glyph_ab and the top datum subtracts nothing), so a row
+# clears its own type when baseline + the deepest descender fits inside it.
+# That is a different sum from the CAPS rows above, which never descend.
+def tl_need(font, s):
+    rows = GLYPH_BOX[font]
+    ab = max(-yo for _, yo in rows.values())
+    bot = max(rows[ord(c)][1] + rows[ord(c)][0] for c in s if ord(c) in rows)
+    return ab + bot
+
+
+print("=== first-boot calibration card: strings ===")
+CAL_COPY = ["This terminal's touch interface is", "not yet calibrated.",
+            "Run a calibration to ensure accurate",
+            "targeting and stratagem deployment."]
+check('"Helldiver," @9pt bold', w(LABEL, "Helldiver,"), calTextW)
+check('"Helldiver," row height', tl_need(LABEL, "Helldiver,"), calAddrH)
+for s in CAL_COPY:
+    check(f'"{s[:34]}" @9pt', w(BODY, s), calTextW)
+    check(f'"{s[:26]}" row height', tl_need(BODY, s), calLineH)
+# The header title sits between the badge and the card's right padding. At
+# FONT_VALUE it is 394px and does not fit; label weight is what makes it.
+calTitleX = calCardX + calBadgeInset + calBadgeW + calTitleGap
+check('"TOUCH CALIBRATION REQUIRED" @9pt bold', w(LABEL, "TOUCH CALIBRATION REQUIRED"),
+      calCardX + calCardW - calTextPadR - calTitleX)
+check('"TOUCH ANYWHERE TO BEGIN" @9pt bold', w(LABEL, "TOUCH ANYWHERE TO BEGIN"),
+      contentW)
+# The triangle is knocked out of the tab's rectangular part, clear of the
+# slanted trailing edge -- see the badge block in showTouchPrompt().
+check("warning triangle width inside the tab", 23, calBadgeW - calBadgeSlant)
+check("warning triangle height inside the tab", calBadgeH - 10, calBadgeH)
+check("badge inside the header band", calBadgeH, calHeadH - 1)
+
+# --- the uncalibrated hint, in the footer's middle gap -----------------------
+#
+# Set in the built-in 6x8 face, in the space the footer rework left empty
+# between the reward and the sync clock. It has to fit that gap without
+# touching either neighbour -- a hint that shoves the reward or the clock is
+# worse than no hint.
+print("\n=== footer: uncalibrated-touch hint ===")
+kHintX = cardX + ICONS["medal"][0] + footerIconGap + kRewardBoxW
+kHintW = (contentR - syncBoxW) - kHintX
+print(f"    hint box x={kHintX} w={kHintW}px, between the reward and the clock")
+check("reward block ends at the hint box's left edge",
+      cardX + ICONS["medal"][0] + footerIconGap + kRewardBoxW, kHintX)
+check("hint box ends at the sync box's left edge", kHintX + kHintW,
+      contentR - syncBoxW)
+check('"HOLD SCREEN AT POWER-ON TO CALIBRATE" @6x8',
+      glcd("HOLD SCREEN AT POWER-ON TO CALIBRATE"), kHintW)
+check("6x8 hint row inside the footer", GLCD_H, footerH)
 
 print("\n" + ("ALL LAYOUT CHECKS PASSED" if not fail else "FAILURES:\n  " + "\n  ".join(fail)))

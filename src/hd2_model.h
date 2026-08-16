@@ -374,6 +374,11 @@ struct HudModel {
   bool haveData = false;      // at least one successful poll since boot
   bool stale = false;         // last poll failed / data older than kStaleAfterS
   bool wifiUp = false;
+  // touch::calibrated() is false: taps land approximately, and the footer says
+  // how to fix it. Carried on the model rather than read from hud_touch by the
+  // renderer, which knows about nothing but this struct -- and it means the
+  // preview harness can shoot the state without a touch panel to hand.
+  bool touchUncalibrated = false;
   time_t lastSuccess = 0;     // UTC epoch of the last good poll
   uint32_t failCount = 0;
 
