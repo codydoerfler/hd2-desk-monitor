@@ -95,8 +95,7 @@
     outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 1px;
   }
 
-  code, .mono { font-family: var(--mono); font-size: 0.86em; }
-  code { color: var(--gold); background: var(--track); padding: 0.12em 0.4em; border-radius: 2px; }
+  .mono { font-family: var(--mono); font-size: 0.86em; }
 
   .eyebrow {
     font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.24em;
@@ -221,17 +220,18 @@
   .cards { display: grid; gap: 18px; margin-top: 42px; }
   @media (min-width: 760px) { .cards.two { grid-template-columns: 1fr 1fr; } }
   @media (min-width: 900px) { .cards.three { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 760px) { .cards.four { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1000px) { .cards.four { grid-template-columns: repeat(4, 1fr); } }
 
   .card {
     background: var(--panel); border: 1px solid var(--edge); padding: 24px;
-    display: flex; flex-direction: column; gap: 12px;
+    display: flex; flex-direction: column; gap: 10px;
   }
   .card .tag {
     font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.2em;
     text-transform: uppercase; color: var(--gold);
   }
   .card p { color: var(--slate); font-size: 0.97rem; }
-  .card img { width: 100%; height: auto; display: block; border: 1px solid var(--edge); }
 
   /* event screens */
   .events { display: grid; gap: 22px; margin-top: 42px; }
@@ -240,49 +240,6 @@
   .event h3 { margin-top: 18px; font-size: 1.1rem; }
   .event p { color: var(--slate); font-size: 0.95rem; margin-top: 8px; }
   .event .bar { height: 3px; margin-top: 14px; }
-
-  /* tables */
-  .tbl-wrap { overflow-x: auto; margin-top: 34px; border: 1px solid var(--edge); }
-  table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 0.94rem; }
-  th, td { text-align: left; padding: 13px 18px; border-bottom: 1px solid var(--edge); vertical-align: top; }
-  thead th {
-    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--gold); background: var(--track);
-    border-bottom: 1px solid var(--gold-mute);
-  }
-  tbody tr:last-child td { border-bottom: 0; }
-  td:first-child { color: var(--bone); white-space: nowrap; }
-  td { color: var(--slate); }
-  td .mono { color: var(--gold); }
-
-  pre {
-    margin: 26px 0 0; padding: 20px 22px; background: var(--panel);
-    border: 1px solid var(--edge); border-left: 2px solid var(--gold-dim);
-    overflow-x: auto; font-family: var(--mono); font-size: 0.84rem;
-    line-height: 1.7; color: var(--bone);
-  }
-  pre .c { color: var(--slate); }
-  pre .k { color: var(--gold); }
-
-  /* engineering notes — the interesting bits of the README */
-  .notes { display: grid; gap: 0; margin-top: 42px; border-top: 1px solid var(--edge); }
-  .note { display: grid; gap: 8px 32px; padding: 28px 0; border-bottom: 1px solid var(--edge); }
-  @media (min-width: 820px) { .note { grid-template-columns: 260px 1fr; } }
-  .note h3 { color: var(--gold); font-size: 1.22rem; }
-  .note p { color: var(--slate); font-size: 0.98rem; }
-  .note p + p { margin-top: 12px; }
-  .note em { color: var(--bone); font-style: normal; }
-
-  /* deploy steps — a real sequence, so it earns its numbering */
-  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 38px 0 0; display: grid; gap: 20px; }
-  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 46px 1fr; gap: 18px; align-items: start; }
-  ol.steps li::before {
-    content: counter(s, decimal-leading-zero);
-    font-family: var(--mono); font-size: 0.8rem; color: var(--gold);
-    border: 1px solid var(--gold-mute); padding: 6px 0; text-align: center;
-  }
-  ol.steps h3 { font-size: 1.05rem; }
-  ol.steps p { color: var(--slate); font-size: 0.96rem; margin-top: 5px; }
 
   /* callout */
   .callout {
@@ -294,10 +251,11 @@
 
   footer { padding-top: clamp(48px, 7vw, 76px); padding-bottom: clamp(56px, 8vw, 90px); }
   footer .cols { display: grid; gap: 30px; }
-  @media (min-width: 760px) { footer .cols { grid-template-columns: 1.4fr 1fr 1fr; } }
+  @media (min-width: 760px) { footer .cols { grid-template-columns: 1.5fr 1fr; } }
   footer h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 12px; }
   footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
   footer li { color: var(--slate); font-size: 0.93rem; }
+  footer p.small { color: var(--slate); }
   .disclaimer {
     margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--edge);
     color: var(--gold-mute); font-family: var(--mono); font-size: 0.72rem;
@@ -320,18 +278,17 @@
       <div class="stamp"><span class="dot"></span> Super Earth &middot; <b>Firmware v1.2.0</b></div>
       <h1><span class="thin">Helldivers 2</span>Major Order Desk Monitor</h1>
       <p class="lede">
-        An always-on desk display that shows the war as it happens: the current
-        Major Order, its target planet, liberation percentage, time remaining and
-        live player counts &mdash; drawn as a Super Earth command terminal on a 4&Prime;
-        480&times;320 panel.
+        The galactic war, sitting on your desk. It shows the Major Order High
+        Command is running right now &mdash; which planet, how close it is to
+        falling, how long is left, and how many Helldivers are down there
+        this minute.
       </p>
       <p class="lede muted small" style="margin-top:16px">
-        Plug it in, join it to WiFi once, and it runs. It updates its own firmware
-        over the air, so USB is only needed for the very first flash.
+        Not a phone app you open. A small lit panel in the corner of your desk
+        that always already knows.
       </p>
       <div class="cta-row">
-        <a class="btn solid" href="https://github.com/codydoerfler/hd2-desk-monitor">Source on GitHub</a>
-        <a class="btn" href="#deploy">Build your own</a>
+        <a class="btn solid" href="https://github.com/codydoerfler/hd2-desk-monitor">See how it's built</a>
       </div>
     </div>
 
@@ -359,55 +316,61 @@
   </div>
 
   <dl class="specs">
-    <div><dt>Panel</dt><dd>480&times;320<small>ST7796S, 4&Prime; landscape</small></dd></div>
-    <div><dt>MCU</dt><dd>ESP32<small>D0WD-V3, no PSRAM</small></dd></div>
-    <div><dt>Poll</dt><dd>5 min<small>api.helldivers2.dev</small></dd></div>
-    <div><dt>Static RAM</dt><dd>17.3%<small>56,704 bytes</small></dd></div>
-    <div><dt>Updates</dt><dd>OTA<small>hourly release check</small></dd></div>
+    <div><dt>Panel</dt><dd>480&times;320<small>4&Prime; landscape LCD</small></dd></div>
+    <div><dt>Refresh</dt><dd>5 min<small>live war data</small></dd></div>
+    <div><dt>Setup</dt><dd>Once<small>WiFi, then never again</small></dd></div>
+    <div><dt>Power</dt><dd>USB-C<small>plug in and forget</small></dd></div>
   </dl>
 </header>
 
 <div class="hazard" role="presentation"></div>
 
-<!-- ============================ CARDS ============================ -->
-<section class="wrap" id="carousel">
+<!-- ========================= WHAT IT TELLS YOU ========================= -->
+<section class="wrap">
   <div class="head-block">
-    <p class="eyebrow">The carousel</p>
-    <h2>Every card is built around the planet</h2>
+    <p class="eyebrow">What you see</p>
+    <h2>One glance and you know where the war stands</h2>
     <p>
-      The target's biome fills the plate, the planet's identity is set
-      <strong>over</strong> the artwork rather than in a row above it, and the
-      progress tracks sit beneath. When an order names several planets the card
-      cycles through them. When there is <strong>no</strong> order, the same card
-      shows the five busiest liberation campaigns in the galaxy instead &mdash; so
-      the screen is never idle while the war is on.
+      No menus, no tapping through screens. Every card is built around the
+      target planet's own biome, with the numbers that matter set over it.
     </p>
   </div>
 
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr><th>Band</th><th>What it carries</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Header</td><td>Objective type, the LIBCON chip, carousel pips, link state</td></tr>
-        <tr><td>Art</td><td>The biome plate, with the planet's name, sector and headline stat set over it; the faction mark on a dark disc; and, on order cards, a countdown plate</td></tr>
-        <tr><td>Bars</td><td>One track for a liberation, two for a defence &mdash; each captioned with what it measures, its value and its measured rate</td></tr>
-        <tr><td>Strip</td><td>Diver share, divers present, the players' push, the enemy's regen</td></tr>
-        <tr><td>Footer</td><td>Divers present, the order's reward, last sync</td></tr>
-      </tbody>
-    </table>
+  <div class="cards three">
+    <div class="card">
+      <span class="tag">The order</span>
+      <h3>What High Command wants</h3>
+      <p>
+        The objective, the medals riding on it, and exactly how long is left.
+        The countdown ticks every second.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">The planet</span>
+      <h3>How close it is to falling</h3>
+      <p>
+        Which world, which sector, who holds it now, and how far the liberation
+        has actually got &mdash; against the enemy pushing the other way.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">The pace</span>
+      <h3>Whether you're winning it</h3>
+      <p>
+        How many divers are on the ground, and whether their push per hour is
+        beating the enemy's regen. The difference between a planet you'll take
+        and one you won't.
+      </p>
+    </div>
   </div>
 
   <div class="callout">
-    <span class="tag">An active order owns the screen</span>
+    <span class="tag">It's never idle</span>
     <p>
-      Its targets are the only pages, and the campaigns feed is not even fetched.
-      High Command's orders are the point of the device; rotating away from them to
-      show a planet nobody was told to take buries the one thing that matters.
-      Swiping pages by hand, wrapping at both ends &mdash; but the 7&nbsp;second timer keeps
-      running underneath and any swipe restarts it. Touch is an accelerator, not a
-      replacement.
+      When an order names several planets, the display cycles through them.
+      When there is no order at all, it shows the five busiest liberation
+      campaigns in the galaxy instead &mdash; so there is always a war on the
+      screen while there is a war on.
     </p>
   </div>
 </section>
@@ -415,15 +378,14 @@
 <hr class="rule">
 
 <!-- ========================= EVENT SCREENS ========================= -->
-<section class="wrap" id="events">
+<section class="wrap">
   <div class="head-block">
-    <p class="eyebrow">Event screens</p>
-    <h2>Two things get the whole panel</h2>
+    <p class="eyebrow">When it matters</p>
+    <h2>It looks up and tells you</h2>
     <p>
-      A new Major Order arriving, and the verdict when one ends. They interrupt the
-      carousel, stay up until they are acknowledged, and are the only screens on the
-      device with no chrome. Each one plays a clip through the board's speaker as it
-      appears.
+      Most of the time it is a quiet dashboard you read out of the corner of
+      your eye. Twice per order it takes the whole panel &mdash; and plays a clip
+      through the speaker so you hear it from the other side of the room.
     </p>
   </div>
 
@@ -431,282 +393,72 @@
     <figure class="event" style="margin:0">
       <img src="data:image/png;base64,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" alt="Full-screen NEW MAJOR ORDER briefing on the device" width="960" height="640" loading="lazy">
       <div class="bar" style="background:var(--gold)"></div>
-      <h3>New Major Order</h3>
-      <p>
-        The order's name and as much of High Command's briefing as fits in four
-        lines. Raised when the assignment id changes &mdash; gated so a reboot does not
-        re-announce an order that was already running.
-      </p>
+      <h3>A new order lands</h3>
+      <p>The order's name and High Command's briefing, full screen, the moment it drops.</p>
     </figure>
     <figure class="event" style="margin:0">
       <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA8AAAAKACAIAAADcm4YUAAAVSElEQVR42u3dIY8cyQEF4LfRggULNvDgUkNDS4b5AzYz8wWFBxoahgflzAwinf/AwZMMDU0ND4YGBlg6rW40k+qpqu6q7u9DiW+nt6u6e/zmTbn75u7+IQAAQJk/mQIAABCgAQBAgAYAAAEaAAAEaAAAEKABAECANgUAACBAAwCAAA0AAAI0AAAI0AAAIEADAIAAbQoAAECABgAAARoAALZ2u/QFXz++mGJgn375zdEFANjQq7/8MMV+PnvzORpoAADIIA30LN59+OboAgBEAx1roAEAQIAGAAABGgAAYg10Kv/dIgAARzBmSqy/p5wGGgAABGgAABCgAQBAgAYAAAEaAAAEaAAAQIAGAAABGgAABGgAABCgAQBAgAYAAAEaAAAQoAEAQIAGAAABGgAABGgAABCgAQBAgAYAAARoAAAQoAEAQIAGAAABGgAABGgAABCgAQAAARoAAARoAAAQoAEAQIAGAAABGgAABGgAAECABgAAARoAAARoAAAQoAEAQIAGAAABGgAAEKABAECABgAAARoAAARoAAAQoAEAQIAGAAAEaAAAEKABAECABgCAzd2++un1wpf89of/v3wLAACwldo0q4EGAAABGgAABGgAANjc7dIXfPrltyRfXj43dwAATOfdf3/4/X8///VLkrz8IRpoAACIJRwAACBAAwCAAA0AAAI0AAAgQAMAgAANAAACNAAACNAAACBAAwCAAA0AAAjQAAAgQAMAgAANAAACNAAACNAAACBAAwAAAjQAAAjQAAAgQAMAgAANAAACNAAACNAAAIAADQAAAjQAAAjQAAAgQAMAgAANAAACNAAAIEADAIAADQAAAjQAAAjQAAAgQAMAgAANAAAI0AAAIEADAIAADQAAAjQAAAjQAAAgQAMAAAI0AAAI0AAAIEADAIAADQAAAjQAAAjQAACAAA0AAAI0AAD0cWsKYN8+/fjzhf/66qfXV7+2ZGv1W6jfTqt9WGfO1zlqNfPcdm7PbaF+ls5tc+mrRjijgGigAQAgGmggU3XPpz/Tqnmt2U79FlrN23X7UD/n6x+161rVeY8vQDTQAAAQDTSQ4dtEPXTbOV/zqGmCAaKBBgAAARpo7NVPry+Ujp9+/LmwBL28nXW20Hs2xpnzVkdtxjMNQIAGAIBYAw1kuh46LVbc1m+n1RZGmI3x52reM63tWdH2XtTu9wzRQAMAAAI0AAAI0AAAIEADAIAADQAAAjQAAAjQAABA3AcaaGucuxHX3MF3tPsT7+9obnWetLqv8yy/F4gGGgAAooEGcrAnHRpFDvxNwlxPTASIBhoAAKKBBiC+owCIBhoAAKKBBrL/BvHcOtfvfz5+y7iPUbQa73U/qXsGooEGAACigQayaaM58mraNUdxnPsEbzuirX67fh2igQYAAARoAAAQoAEAQIAGAAABGgAABGgAABCgAQAAARoAAARoAACIJxECWfV5eDPuySzP9us30jR98uI+nqW31eiO86RJQAMNAADRQANZ2mKu2ZONsyfjj/Q4c6XNBaKBBgAAARqYwKufXivqpptzRw1AgAYAgFgDDWSiTjSzraCdvYKtn/MZjxpANNAAAMA5N2/+/ddFL3j+65ckX14+N3cAAEztumSrgQYAAAEaAAAEaAAAEKABAECABgAAARoAABCgAQBAgAYAAAEaAAAEaAAAEKABAECABgAABGgAABCgAQBAgAYAAAEaAAAEaAAAEKABAAABGgAABGgAABCgAQBAgAYAAAEaAAAEaAAAQIAGAAABGgAABGgAABCgAQBAgAYAAAEaAAAQoAEAQIAGAAABGgAABGgAABCgAQBAgAYAAARoAAAQoAEAQIAGAAABGgAABGgAABCgAQAAARoAAARoAAAQoAEAQIAGAAABGgAABGgAAECABgAAARoAAARoAAAQoAEAQIAGAAABGgAAEKABAGCBm7v7h0UveP/2Mcm7D9/MHQAAU7su2WqgAQBAgAYAAAEaAAAEaAAAEKABAECABgAABGgAABCgAQBAgAYAAAEaAAAEaAAAEKABAAABGgAABGgAABCgAQBAgAYAAAEaAAAEaAAAQIAGAAABGgAABGgAABCgAQBAgAYAAAEaAAAQoAEAQIAGAAABGgAABGgAABCgAQBAgAYAAARoAAAQoAEAQIAGAAABGgAABGgAABCgAQAAARoAAARoAAAQoAEAQIAGAAABGgAABGgAAECABgAAARoAAARoAAAQoAEAQIAGAAABGgAAEKABAECABgAAARoAAARoAAAQoAEAQIAGAAAEaAAAEKABAECABgAAARoAAARoAAAQoAEAAAEaAAAEaAAAEKABAECABgAAARoAAARoAABA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EKABAECABgAAARoAAARoAAAQoAEAAAEaAAAEaAAAiCcRwr58/fji9//97M3n//szl53bQsk2W722fG9bbaF8z5fOfM3Pl89eqxHV73mPn3z68z3muf58q9la+SyNfC0A0UADAEA00MCM3VL9Ppc0fOXt5rlWb+kW0vnbhlb7s3Sk3/986T5c/snyDrX+uJTvbcmxaHvujXktANFAAwBANNCQA6x+Hmd/eqzpTOeGe/zurXxd7ywjyuTf5NSfyaMdKWcORAMNAADRQAM56XpH63Qzead43ZrUfR+FfiPtcQ7PdVz00BANNAAAEA00ZBdddYZZFTpvd355n8dp7Hrcf6PVSM+9tuT+HrMfF4BooAEAIBpoyO4a5TWfXXe5XySNVqaOfIfvVt8wjHnOtHqiJIAGGgAAooGG7G8187lueMx1omt25zVzuM6q7nP3l+jXSdePtOS8antn5fq9HfO5nmNeC0A00AAAEA005PBrZ7PKnV9L2r6lWx6nUWvbufY4sqeddM1dMnqMtEdD36MLL9nO+iuhtcsQDTQAAEQDDcR9iA/wrMQxR3S6Qrr+fKgZ6bmjX3JH56c/s23Dvae7mAPRQAMAQDTQQBaugHRX2tHWlPde6TvOittxWti59hYgGmgAAIgGGrK71bprNpfjPy2vfJauay7HvK92j462ZKTl9zA+97TFNff2yM819I0WRAMNAADRQAO5qg8+173165zGX3U6S99Wfq/ukUek0dQ9A9FAAwBANNCQA/TQs7SD5R12SSObVe5wsrT1L9+r8lXCS49mv5HW3DV5/eNSf9fzVufeaNcCEA00AABs6+bu/mHRC96/fUzy7sM3cwcAwNSuS7YaaAAAEKABAECABgAAARoAAARoAAAQoAEAAAEaAAAEaAAAEKABAECABgAAARoAAARoAABAgAYAAAEaAAAEaAAAEKABAECABgAAARoAABCgAQBAgAYAAAEaAAAEaAAAEKABAECABgAABGgAABCgAQBAgAYAAAEaAAAEaAAAEKABAAABGgAABGgAABCgAQBAgAYAAAEaAAAEaAAAQIAGAAABGgAABGgAABCgAQBAgAYAAAEaAAAQoAEAQIAGAAABGgAABGgAABCgAQBAgAYAAARoAAAQoAEAQIAGAAABGgAABGgAABCgAQAAARoAAARoAAAQoAEAQIAGAAABGgAABGgAAECABgAAARoAAARoAAAQoAEAQIAGAAABGgAAEKABAECABgAAARoAAARoAAAQoAEAQIAGAAAEaAAAEKABAECABgAAARoAAARoAAAQoAEAAAEaAAAEaAAAEKABAECABgAAARoAAARoAABAgAYAAAEaAAAEaAAAEKABAECABgAAARoAABCgAQBAgAYAAAEaAAAEaAAAEKABAECABgAABGgAABCgAQBAgAYAAAEaAAAEaAAAEKABAAABGgAABGgAABCgAQBAgAYAAAEaAAAEaAAAQIAGAAABGgAABGgAABCgAQBAgAYAAAEaAAAQoAEAQIAGAAABGgAANndzd/+w6AVfP774w588e/PZPEJDr17++YpXffr1P5VbvryF09f2/vnyPey9b7McozX3edvj2/ZVa46lx3aAperTrAYaAAAWuDUFEH32yU+u2XuNv4dHnoHvv3Gd5nv849tqLM55iDXQAAAQDTSwlZK+qmaFZcn263vHVPR5NY2dY9RqTfbT33jd7xr/DFx/LHuaE4gGGgAAiAYaSEHjeLkbG3MP99rGjX+MjK7tWPZ9xCEaaAAAQAMNOcKdN0qa2jVb3po9dIzWOUbrt/7lW366b2N+F9Fqf6x4hmigAQAgGmiA7OJpjoxzL4tWv6XfSuJWY1lnToBooAEAIBpoALK7O4qUtL/XrQifcSx7mhOIBhoAAIgGGog7XscK6RGPxeWjMNe9NZaOZU9zAtFAAwAA0UADkOGb6Xm/GWg1lj3NCUQDDQAARAMNOczdD0pWT675r/7H30PHqP539d7b0+cRrnNv6Zrtu7cGRAMNAADRQAPZ9XPgWq2zbLu1fts88jHKJC37+KNrNZY9zQlEAw0AAEQDDbES+qTHKmm2Tvuwtlvrt80jH6NUr8ddZ7b3dHxbjeU45zxEAw0AANFAA9np3XZLVmeuubXLLexxGrges7rOMx3bjm78o9xqLHuaE4gGGgAAuOzm7v5h0Qu+fnzxhz959uazeQQAYAr1aVYDDQAAAjQAAAjQAAAgQAMAgAANAAACNAAAIEADAIAADQAAAjQAAAjQAAAgQAMAgAANAAAI0AAAIEADAIAADQAAAjQAAAjQAAAgQAMAAAI0AAAI0AAAIEADAIAADQAAAjQAAOzUbf0mvn58MeDAnr357OgCAGxozJQYDTQAAAjQAAAgQAMAQKyBHtX7t4+OLgAA0UADAMCGbu7uH8wCAABEAw0AAAI0AAAI0AAAIEADAIAADQAAAjQAACBAAwCAAA0AAAI0AAAI0AAAIEADAIAADQAACNAAACBAAwCAAA0AAJP4H1s3Vm/PdpPoAAAAAElFTkSuQmCC" alt="Full-screen ORDER COMPLETE screen with a green band" width="960" height="640" loading="lazy">
       <div class="bar" style="background:var(--green)"></div>
-      <h3>Order complete</h3>
+      <h3>You won it</h3>
       <p>
-        Every task was done at the last observation. The green band is the whole
-        design: from across a room the colour has already said it before any of the
-        words have.
+        The green band is the whole design: from across a room the colour has
+        already said it before any of the words have.
       </p>
     </figure>
     <figure class="event" style="margin:0">
       <img src="data:image/png;base64,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" alt="Full-screen ORDER FAILED screen" width="960" height="640" loading="lazy">
       <div class="bar" style="background:var(--red)"></div>
-      <h3>Order failed</h3>
+      <h3>You didn't</h3>
       <p>
-        The order ended incomplete, or its deadline passed with tasks outstanding.
-        The objective count is here because &ldquo;3 of 4 objectives met&rdquo; is a
+        With the objective count, because &ldquo;3 of 4 objectives met&rdquo; is a
         materially different evening from &ldquo;0 of 4&rdquo;.
       </p>
     </figure>
   </div>
-
-  <div class="callout">
-    <span class="tag">The API has no outcome field</span>
-    <p>
-      An assignment that ends simply stops being listed, so the verdict is inferred
-      from the last state the device saw before the order vanished: gone with every
-      task complete is a success, gone otherwise is a failure. Completion is tested
-      <em>before</em> the deadline, so an order finished with an hour to spare is not
-      called a failure the moment its clock runs out &mdash; and the check only runs on a
-      poll that actually succeeded, because a dropped connection must never read as a
-      lost war.
-    </p>
-  </div>
 </section>
 
 <div class="hazard" role="presentation"></div>
 
-<!-- ============================ HARDWARE ============================ -->
-<section class="wrap" id="hardware">
+<!-- ========================= IT JUST RUNS ========================= -->
+<section class="wrap">
   <div class="head-block">
-    <p class="eyebrow">Hardware</p>
-    <h2>One board, no soldering</h2>
+    <p class="eyebrow">Then it leaves you alone</p>
+    <h2>Nothing to maintain</h2>
     <p>
-      A Hosyond 4&Prime; ESP32-32E display module &mdash; the LCDwiki
-      <code>E32R40T</code>. Panel, touch controller, amplifier and MicroSD slot are
-      all already on it. Power is USB-C.
+      It is a finished object, not a project you keep tending. Set it up once
+      and it looks after itself from there.
     </p>
   </div>
 
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>Part</th><th>Detail</th></tr></thead>
-      <tbody>
-        <tr><td>Board</td><td>Hosyond 4&Prime; ESP32-32E display module (LCDwiki <span class="mono">E32R40T</span>)</td></tr>
-        <tr><td>MCU</td><td>ESP32-D0WD-V3, dual core, <strong style="color:var(--bone)">no PSRAM</strong>, 520&nbsp;KB SRAM, 4&nbsp;MB flash</td></tr>
-        <tr><td>Panel</td><td>ST7796S, 320&times;480 native, driven at rotation&nbsp;1 &rarr; 480&times;320 landscape</td></tr>
-        <tr><td>Touch</td><td>XPT2046 resistive, on the panel's SPI bus (<span class="mono">CS 33</span>) &mdash; swipe to page, tap to dismiss</td></tr>
-        <tr><td>Audio</td><td><span class="mono">GPIO26</span> internal DAC &rarr; FM8002E amp, <span class="mono">GPIO4</span> enable (active low)</td></tr>
-        <tr><td>Storage</td><td>Onboard MicroSD on VSPI (<span class="mono">18/19/23/5</span>). Entirely optional.</td></tr>
-        <tr><td>Power</td><td>USB-C, 5&nbsp;V. No battery circuitry.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <p class="small muted" style="margin-top:18px">
-    Pin definitions live in <code>platformio.ini</code> under <code>build_flags</code>, not in a
-    TFT_eSPI <code>User_Setup.h</code> &mdash; nothing in the library folder needs editing.
-  </p>
-
-  <div class="callout">
-    <span class="tag">Verify the pinout first</span>
-    <p>
-      Hosyond does not publish its own datasheet, so the mapping is taken from the
-      LCDwiki listing and cross-checked against the ESP32-Cheap-Yellow-Display
-      community pinouts. Blank screen with the backlight on usually means the driver,
-      not the pins; blank with the backlight off means <code>TFT_BL</code> &mdash; the single
-      most likely pin to differ. The README walks through all five failure modes.
-    </p>
-  </div>
-</section>
-
-<hr class="rule">
-
-<!-- ========================= ENGINEERING ========================= -->
-<section class="wrap" id="engineering">
-  <div class="head-block">
-    <p class="eyebrow">Under the hood</p>
-    <h2>Decisions worth writing down</h2>
-    <p>
-      Most of what is interesting here is not the feature list &mdash; it is what the
-      constraints of a 4&nbsp;MB part with no PSRAM forced.
-    </p>
-  </div>
-
-  <div class="notes">
-    <article class="note">
-      <h3>The touch panel was never miscalibrated</h3>
-      <div>
-        <p>
-          TFT_eSPI's own touch layer produced a panel where calibration appeared not to
-          hold &mdash; taps landed erratically, swipes barely registered. The cause is in
-          <code>validTouch()</code>, which requires two successive samples to agree within
-          20 ADC counts.
-        </p>
-        <p>
-          That is a <em>stationarity test</em>, and a moving finger cannot pass it. It is a
-          reasonable filter for buttons and a fatal one for gestures: most of a swipe is
-          rejected outright, and the readings that survive are whichever ones caught the
-          finger momentarily still &mdash; which is why the symptom presents as bad
-          calibration rather than as dropped input.
-        </p>
-        <p>
-          So the firmware keeps TFT_eSPI for bus arbitration and raw conversions, and
-          replaces only the validation layer: a pressure gate first, a median of five
-          instead of a deadband, the burst bracketed by the pressure gate at both ends,
-          and a release that has to stay quiet for 70&nbsp;ms.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>Two app slots, or no OTA</h3>
-      <div>
-        <p>
-          Flash sits at 96.1% &mdash; high because the partition table splits 4&nbsp;MB into two
-          1.9375&nbsp;MiB app slots, which is what over-the-air updates need: the running
-          image stays put while an update is written into the other.
-        </p>
-        <p>
-          Adding the SD/FAT stack pushed the stock <code>min_spiffs.csv</code> to 98.5%, so
-          the project carries its own table that drops a SPIFFS partition it never
-          mounted and gives 64&nbsp;KB of it to <em>each</em> slot. A unit already in the field
-          needs one USB reflash to actually get that room &mdash; an OTA writes the app slot
-          and nothing else.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>The previews cannot drift</h3>
-      <div>
-        <p>
-          Every screen on this page was produced by <code>tools/preview.sh</code>, which
-          compiles <em>the firmware's own renderer</em> against a small host shim and
-          rasterises the result to a PNG. Nothing in the shim describes the layout, so
-          there is no second copy to keep in step.
-        </p>
-        <p>
-          Its predecessor was a hand-maintained Python reimplementation of the same
-          layout. It fell two commits behind and started rendering a HUD the device no
-          longer drew &mdash; exactly the thing a preview exists to prevent. Between the
-          renderer harness and <code>check_layout.py</code>, six real layout bugs were caught
-          before any hardware existed.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>Direct drawing, not LVGL</h3>
-      <div>
-        <p>
-          A full 480&times;320 16-bpp framebuffer is 307&nbsp;KB against 520&nbsp;KB of SRAM, most
-          already spoken for by the WiFi stack and TLS. The HUD is a fixed, nearly-static
-          arrangement of text and rectangles with no scrolling or animation, so the
-          abstraction buys little.
-        </p>
-        <p>
-          Instead the renderer redraws only what changed, via a content signature rebuilt
-          each frame; the countdown, WiFi indicator and footer each keep their own. Text
-          boxes are composited in small transient sprites and freed immediately. Result:
-          48&nbsp;KB static RAM, leaving roughly 280&nbsp;KB of heap for TLS and sprites.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>Stale data beats no data</h3>
-      <div>
-        <p>
-          The screen is never blanked or replaced by an error message. A failed fetch
-          keeps the last good data up and switches the footer to a dimmed
-          <span class="mono">STALE &mdash; LAST hh:mm</span>. Repeated failures back off from
-          15&nbsp;seconds to a 10-minute ceiling; a dropped WiFi link turns the header
-          indicator red and nudges a reconnect every 15&nbsp;seconds.
-        </p>
-      </div>
-    </article>
-  </div>
-</section>
-
-<div class="hazard" role="presentation"></div>
-
-<!-- ============================ DEPLOY ============================ -->
-<section class="wrap" id="deploy">
-  <div class="head-block">
-    <p class="eyebrow">Deploy</p>
-    <h2>USB once, then never again</h2>
-    <p>
-      Everything &mdash; platform, board, libraries, display config &mdash; is pinned in
-      <code>platformio.ini</code>. The first build downloads the toolchain and takes a few
-      minutes; later builds take seconds.
-    </p>
-  </div>
-
-<pre><span class="c"># requires PlatformIO Core</span>
-git clone https://github.com/codydoerfler/hd2-desk-monitor.git
-cd hd2-desk-monitor
-
-pio run                 <span class="c"># build</span>
-pio run -t upload       <span class="c"># build + flash over USB-C</span>
-pio device monitor      <span class="c"># serial log @ 115200 baud</span></pre>
-
-  <ol class="steps">
-    <li>
-      <div>
-        <h3>Flash over USB-C</h3>
-        <p>The only time a cable is required. This also writes the partition table, which an OTA cannot.</p>
-      </div>
-    </li>
-    <li>
-      <div>
-        <h3>Join it to WiFi</h3>
-        <p>
-          No credentials are compiled in. On first boot the device raises a captive
-          portal &mdash; join <span class="mono">HD2-Monitor</span>, password
-          <span class="mono">helldive</span>, pick your network and set a UTC offset.
-          Stored in NVS, survives power cycles. If nobody configures it within five
-          minutes it reboots and retries the saved network, so an unattended unit
-          recovers on its own after a router outage.
-        </p>
-      </div>
-    </li>
-    <li>
-      <div>
-        <h3>Set a real contact header</h3>
-        <p>
-          The community API requires every request to identify its caller and returns
-          HTTP 400 without it. <code>HD2_CONTACT_HEADER</code> ships as a placeholder &mdash;
-          replace it with your GitHub handle or an email. This is the courtesy that
-          keeps a free community API open.
-        </p>
-      </div>
-    </li>
-    <li>
-      <div>
-        <h3>Leave it alone</h3>
-        <p>
-          Once an hour the device asks GitHub for the newest release and, if the tag is
-          a higher version than the running image, downloads <code>firmware.bin</code> into
-          the inactive slot and reboots into it. A download that fails halfway leaves the
-          running firmware untouched.
-        </p>
-      </div>
-    </li>
-  </ol>
-
-  <div class="callout">
-    <span class="tag">Optional &mdash; the SD card</span>
-    <p>
-      Without a card the device behaves exactly as it always has; the only difference
-      is one <span class="mono">[sd] no card</span> line in the serial log. With one,
-      the event screens get their own audio from
-      <span class="mono">/audio/mo_new.wav</span>,
-      <span class="mono">mo_success.wav</span> and
-      <span class="mono">mo_failure.wav</span>. A clean checkout synthesises plain
-      terminal tones, so it produces a working card without shipping game audio nobody
-      can redistribute.
-    </p>
+  <div class="cards four">
+    <div class="card">
+      <span class="tag">Setup</span>
+      <p>
+        Plug it in, join it to your WiFi from your phone once. That is the
+        entire setup.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Updates</span>
+      <p>
+        New firmware arrives over the internet on its own. A cable is only ever
+        needed for the very first flash.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Outages</span>
+      <p>
+        Lost the connection? The last good data stays up, quietly marked stale.
+        Stale beats blank.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Touch</span>
+      <p>
+        Swipe to page through planets by hand, tap to dismiss an alert. It keeps
+        cycling on its own either way.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -716,26 +468,20 @@ pio device monitor      <span class="c"># serial log @ 115200 baud</span></pre>
   <div class="cols">
     <div>
       <h3>Major Order Desk Monitor</h3>
-      <p class="small muted">
-        An unofficial fan project by Cody Doerfler. Source, releases and the full
-        build notes are on
-        <a href="https://github.com/codydoerfler/hd2-desk-monitor">GitHub</a>.
+      <p class="small">
+        An unofficial fan project by Cody Doerfler. Built on an ESP32 with a
+        4&Prime; panel, reading the community Helldivers 2 API. If you want the
+        pinout, the partition table and the reason the touch driver had to be
+        rewritten, it's all in the
+        <a href="https://github.com/codydoerfler/hd2-desk-monitor">README on GitHub</a>
+        &mdash; along with everything you'd need to build one.
       </p>
     </div>
     <div>
       <h3>Built on</h3>
       <ul>
-        <li><a href="https://github.com/helldivers-2/api">helldivers-2/api</a> &mdash; data</li>
-        <li><a href="https://github.com/Bodmer/TFT_eSPI">Bodmer/TFT_eSPI</a> &mdash; display</li>
-        <li><a href="https://github.com/tzapu/WiFiManager">tzapu/WiFiManager</a> &mdash; provisioning</li>
-        <li><a href="https://github.com/bblanchon/ArduinoJson">ArduinoJson</a> &mdash; parsing</li>
-      </ul>
-    </div>
-    <div>
-      <h3>Reference</h3>
-      <ul>
-        <li><a href="https://www.lcdwiki.com/4.0inch_ESP32-32E_Display">LCDwiki E32R40T</a></li>
-        <li><a href="https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display">Cheap-Yellow-Display</a></li>
+        <li><a href="https://github.com/helldivers-2/api">helldivers-2/api</a> &mdash; the war data</li>
+        <li><a href="https://github.com/Bodmer/TFT_eSPI">Bodmer/TFT_eSPI</a> &mdash; the display</li>
         <li><a href="https://github.com/codydoerfler/hd2-desk-monitor/releases">Firmware releases</a></li>
       </ul>
     </div>

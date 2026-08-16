@@ -85,8 +85,7 @@
     outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 1px;
   }
 
-  code, .mono { font-family: var(--mono); font-size: 0.86em; }
-  code { color: var(--gold); background: var(--track); padding: 0.12em 0.4em; border-radius: 2px; }
+  .mono { font-family: var(--mono); font-size: 0.86em; }
 
   .eyebrow {
     font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.24em;
@@ -211,17 +210,18 @@
   .cards { display: grid; gap: 18px; margin-top: 42px; }
   @media (min-width: 760px) { .cards.two { grid-template-columns: 1fr 1fr; } }
   @media (min-width: 900px) { .cards.three { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 760px) { .cards.four { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1000px) { .cards.four { grid-template-columns: repeat(4, 1fr); } }
 
   .card {
     background: var(--panel); border: 1px solid var(--edge); padding: 24px;
-    display: flex; flex-direction: column; gap: 12px;
+    display: flex; flex-direction: column; gap: 10px;
   }
   .card .tag {
     font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.2em;
     text-transform: uppercase; color: var(--gold);
   }
   .card p { color: var(--slate); font-size: 0.97rem; }
-  .card img { width: 100%; height: auto; display: block; border: 1px solid var(--edge); }
 
   /* event screens */
   .events { display: grid; gap: 22px; margin-top: 42px; }
@@ -230,49 +230,6 @@
   .event h3 { margin-top: 18px; font-size: 1.1rem; }
   .event p { color: var(--slate); font-size: 0.95rem; margin-top: 8px; }
   .event .bar { height: 3px; margin-top: 14px; }
-
-  /* tables */
-  .tbl-wrap { overflow-x: auto; margin-top: 34px; border: 1px solid var(--edge); }
-  table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 0.94rem; }
-  th, td { text-align: left; padding: 13px 18px; border-bottom: 1px solid var(--edge); vertical-align: top; }
-  thead th {
-    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--gold); background: var(--track);
-    border-bottom: 1px solid var(--gold-mute);
-  }
-  tbody tr:last-child td { border-bottom: 0; }
-  td:first-child { color: var(--bone); white-space: nowrap; }
-  td { color: var(--slate); }
-  td .mono { color: var(--gold); }
-
-  pre {
-    margin: 26px 0 0; padding: 20px 22px; background: var(--panel);
-    border: 1px solid var(--edge); border-left: 2px solid var(--gold-dim);
-    overflow-x: auto; font-family: var(--mono); font-size: 0.84rem;
-    line-height: 1.7; color: var(--bone);
-  }
-  pre .c { color: var(--slate); }
-  pre .k { color: var(--gold); }
-
-  /* engineering notes — the interesting bits of the README */
-  .notes { display: grid; gap: 0; margin-top: 42px; border-top: 1px solid var(--edge); }
-  .note { display: grid; gap: 8px 32px; padding: 28px 0; border-bottom: 1px solid var(--edge); }
-  @media (min-width: 820px) { .note { grid-template-columns: 260px 1fr; } }
-  .note h3 { color: var(--gold); font-size: 1.22rem; }
-  .note p { color: var(--slate); font-size: 0.98rem; }
-  .note p + p { margin-top: 12px; }
-  .note em { color: var(--bone); font-style: normal; }
-
-  /* deploy steps — a real sequence, so it earns its numbering */
-  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 38px 0 0; display: grid; gap: 20px; }
-  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 46px 1fr; gap: 18px; align-items: start; }
-  ol.steps li::before {
-    content: counter(s, decimal-leading-zero);
-    font-family: var(--mono); font-size: 0.8rem; color: var(--gold);
-    border: 1px solid var(--gold-mute); padding: 6px 0; text-align: center;
-  }
-  ol.steps h3 { font-size: 1.05rem; }
-  ol.steps p { color: var(--slate); font-size: 0.96rem; margin-top: 5px; }
 
   /* callout */
   .callout {
@@ -284,10 +241,11 @@
 
   footer { padding-top: clamp(48px, 7vw, 76px); padding-bottom: clamp(56px, 8vw, 90px); }
   footer .cols { display: grid; gap: 30px; }
-  @media (min-width: 760px) { footer .cols { grid-template-columns: 1.4fr 1fr 1fr; } }
+  @media (min-width: 760px) { footer .cols { grid-template-columns: 1.5fr 1fr; } }
   footer h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 12px; }
   footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
   footer li { color: var(--slate); font-size: 0.93rem; }
+  footer p.small { color: var(--slate); }
   .disclaimer {
     margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--edge);
     color: var(--gold-mute); font-family: var(--mono); font-size: 0.72rem;
@@ -308,18 +266,17 @@
       <div class="stamp"><span class="dot"></span> Super Earth &middot; <b>Firmware v1.2.0</b></div>
       <h1><span class="thin">Helldivers 2</span>Major Order Desk Monitor</h1>
       <p class="lede">
-        An always-on desk display that shows the war as it happens: the current
-        Major Order, its target planet, liberation percentage, time remaining and
-        live player counts &mdash; drawn as a Super Earth command terminal on a 4&Prime;
-        480&times;320 panel.
+        The galactic war, sitting on your desk. It shows the Major Order High
+        Command is running right now &mdash; which planet, how close it is to
+        falling, how long is left, and how many Helldivers are down there
+        this minute.
       </p>
       <p class="lede muted small" style="margin-top:16px">
-        Plug it in, join it to WiFi once, and it runs. It updates its own firmware
-        over the air, so USB is only needed for the very first flash.
+        Not a phone app you open. A small lit panel in the corner of your desk
+        that always already knows.
       </p>
       <div class="cta-row">
-        <a class="btn solid" href="https://github.com/codydoerfler/hd2-desk-monitor">Source on GitHub</a>
-        <a class="btn" href="#deploy">Build your own</a>
+        <a class="btn solid" href="https://github.com/codydoerfler/hd2-desk-monitor">See how it's built</a>
       </div>
     </div>
 
@@ -340,55 +297,61 @@
   </div>
 
   <dl class="specs">
-    <div><dt>Panel</dt><dd>480&times;320<small>ST7796S, 4&Prime; landscape</small></dd></div>
-    <div><dt>MCU</dt><dd>ESP32<small>D0WD-V3, no PSRAM</small></dd></div>
-    <div><dt>Poll</dt><dd>5 min<small>api.helldivers2.dev</small></dd></div>
-    <div><dt>Static RAM</dt><dd>17.3%<small>56,704 bytes</small></dd></div>
-    <div><dt>Updates</dt><dd>OTA<small>hourly release check</small></dd></div>
+    <div><dt>Panel</dt><dd>480&times;320<small>4&Prime; landscape LCD</small></dd></div>
+    <div><dt>Refresh</dt><dd>5 min<small>live war data</small></dd></div>
+    <div><dt>Setup</dt><dd>Once<small>WiFi, then never again</small></dd></div>
+    <div><dt>Power</dt><dd>USB-C<small>plug in and forget</small></dd></div>
   </dl>
 </header>
 
 <div class="hazard" role="presentation"></div>
 
-<!-- ============================ CARDS ============================ -->
-<section class="wrap" id="carousel">
+<!-- ========================= WHAT IT TELLS YOU ========================= -->
+<section class="wrap">
   <div class="head-block">
-    <p class="eyebrow">The carousel</p>
-    <h2>Every card is built around the planet</h2>
+    <p class="eyebrow">What you see</p>
+    <h2>One glance and you know where the war stands</h2>
     <p>
-      The target's biome fills the plate, the planet's identity is set
-      <strong>over</strong> the artwork rather than in a row above it, and the
-      progress tracks sit beneath. When an order names several planets the card
-      cycles through them. When there is <strong>no</strong> order, the same card
-      shows the five busiest liberation campaigns in the galaxy instead &mdash; so
-      the screen is never idle while the war is on.
+      No menus, no tapping through screens. Every card is built around the
+      target planet's own biome, with the numbers that matter set over it.
     </p>
   </div>
 
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr><th>Band</th><th>What it carries</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Header</td><td>Objective type, the LIBCON chip, carousel pips, link state</td></tr>
-        <tr><td>Art</td><td>The biome plate, with the planet's name, sector and headline stat set over it; the faction mark on a dark disc; and, on order cards, a countdown plate</td></tr>
-        <tr><td>Bars</td><td>One track for a liberation, two for a defence &mdash; each captioned with what it measures, its value and its measured rate</td></tr>
-        <tr><td>Strip</td><td>Diver share, divers present, the players' push, the enemy's regen</td></tr>
-        <tr><td>Footer</td><td>Divers present, the order's reward, last sync</td></tr>
-      </tbody>
-    </table>
+  <div class="cards three">
+    <div class="card">
+      <span class="tag">The order</span>
+      <h3>What High Command wants</h3>
+      <p>
+        The objective, the medals riding on it, and exactly how long is left.
+        The countdown ticks every second.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">The planet</span>
+      <h3>How close it is to falling</h3>
+      <p>
+        Which world, which sector, who holds it now, and how far the liberation
+        has actually got &mdash; against the enemy pushing the other way.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">The pace</span>
+      <h3>Whether you're winning it</h3>
+      <p>
+        How many divers are on the ground, and whether their push per hour is
+        beating the enemy's regen. The difference between a planet you'll take
+        and one you won't.
+      </p>
+    </div>
   </div>
 
   <div class="callout">
-    <span class="tag">An active order owns the screen</span>
+    <span class="tag">It's never idle</span>
     <p>
-      Its targets are the only pages, and the campaigns feed is not even fetched.
-      High Command's orders are the point of the device; rotating away from them to
-      show a planet nobody was told to take buries the one thing that matters.
-      Swiping pages by hand, wrapping at both ends &mdash; but the 7&nbsp;second timer keeps
-      running underneath and any swipe restarts it. Touch is an accelerator, not a
-      replacement.
+      When an order names several planets, the display cycles through them.
+      When there is no order at all, it shows the five busiest liberation
+      campaigns in the galaxy instead &mdash; so there is always a war on the
+      screen while there is a war on.
     </p>
   </div>
 </section>
@@ -396,15 +359,14 @@
 <hr class="rule">
 
 <!-- ========================= EVENT SCREENS ========================= -->
-<section class="wrap" id="events">
+<section class="wrap">
   <div class="head-block">
-    <p class="eyebrow">Event screens</p>
-    <h2>Two things get the whole panel</h2>
+    <p class="eyebrow">When it matters</p>
+    <h2>It looks up and tells you</h2>
     <p>
-      A new Major Order arriving, and the verdict when one ends. They interrupt the
-      carousel, stay up until they are acknowledged, and are the only screens on the
-      device with no chrome. Each one plays a clip through the board's speaker as it
-      appears.
+      Most of the time it is a quiet dashboard you read out of the corner of
+      your eye. Twice per order it takes the whole panel &mdash; and plays a clip
+      through the speaker so you hear it from the other side of the room.
     </p>
   </div>
 
@@ -412,282 +374,72 @@
     <figure class="event" style="margin:0">
       <img src="data:image/png;base64,{{IMG_neworder}}" alt="Full-screen NEW MAJOR ORDER briefing on the device" width="960" height="640" loading="lazy">
       <div class="bar" style="background:var(--gold)"></div>
-      <h3>New Major Order</h3>
-      <p>
-        The order's name and as much of High Command's briefing as fits in four
-        lines. Raised when the assignment id changes &mdash; gated so a reboot does not
-        re-announce an order that was already running.
-      </p>
+      <h3>A new order lands</h3>
+      <p>The order's name and High Command's briefing, full screen, the moment it drops.</p>
     </figure>
     <figure class="event" style="margin:0">
       <img src="data:image/png;base64,{{IMG_success}}" alt="Full-screen ORDER COMPLETE screen with a green band" width="960" height="640" loading="lazy">
       <div class="bar" style="background:var(--green)"></div>
-      <h3>Order complete</h3>
+      <h3>You won it</h3>
       <p>
-        Every task was done at the last observation. The green band is the whole
-        design: from across a room the colour has already said it before any of the
-        words have.
+        The green band is the whole design: from across a room the colour has
+        already said it before any of the words have.
       </p>
     </figure>
     <figure class="event" style="margin:0">
       <img src="data:image/png;base64,{{IMG_failure}}" alt="Full-screen ORDER FAILED screen" width="960" height="640" loading="lazy">
       <div class="bar" style="background:var(--red)"></div>
-      <h3>Order failed</h3>
+      <h3>You didn't</h3>
       <p>
-        The order ended incomplete, or its deadline passed with tasks outstanding.
-        The objective count is here because &ldquo;3 of 4 objectives met&rdquo; is a
+        With the objective count, because &ldquo;3 of 4 objectives met&rdquo; is a
         materially different evening from &ldquo;0 of 4&rdquo;.
       </p>
     </figure>
   </div>
-
-  <div class="callout">
-    <span class="tag">The API has no outcome field</span>
-    <p>
-      An assignment that ends simply stops being listed, so the verdict is inferred
-      from the last state the device saw before the order vanished: gone with every
-      task complete is a success, gone otherwise is a failure. Completion is tested
-      <em>before</em> the deadline, so an order finished with an hour to spare is not
-      called a failure the moment its clock runs out &mdash; and the check only runs on a
-      poll that actually succeeded, because a dropped connection must never read as a
-      lost war.
-    </p>
-  </div>
 </section>
 
 <div class="hazard" role="presentation"></div>
 
-<!-- ============================ HARDWARE ============================ -->
-<section class="wrap" id="hardware">
+<!-- ========================= IT JUST RUNS ========================= -->
+<section class="wrap">
   <div class="head-block">
-    <p class="eyebrow">Hardware</p>
-    <h2>One board, no soldering</h2>
+    <p class="eyebrow">Then it leaves you alone</p>
+    <h2>Nothing to maintain</h2>
     <p>
-      A Hosyond 4&Prime; ESP32-32E display module &mdash; the LCDwiki
-      <code>E32R40T</code>. Panel, touch controller, amplifier and MicroSD slot are
-      all already on it. Power is USB-C.
+      It is a finished object, not a project you keep tending. Set it up once
+      and it looks after itself from there.
     </p>
   </div>
 
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>Part</th><th>Detail</th></tr></thead>
-      <tbody>
-        <tr><td>Board</td><td>Hosyond 4&Prime; ESP32-32E display module (LCDwiki <span class="mono">E32R40T</span>)</td></tr>
-        <tr><td>MCU</td><td>ESP32-D0WD-V3, dual core, <strong style="color:var(--bone)">no PSRAM</strong>, 520&nbsp;KB SRAM, 4&nbsp;MB flash</td></tr>
-        <tr><td>Panel</td><td>ST7796S, 320&times;480 native, driven at rotation&nbsp;1 &rarr; 480&times;320 landscape</td></tr>
-        <tr><td>Touch</td><td>XPT2046 resistive, on the panel's SPI bus (<span class="mono">CS 33</span>) &mdash; swipe to page, tap to dismiss</td></tr>
-        <tr><td>Audio</td><td><span class="mono">GPIO26</span> internal DAC &rarr; FM8002E amp, <span class="mono">GPIO4</span> enable (active low)</td></tr>
-        <tr><td>Storage</td><td>Onboard MicroSD on VSPI (<span class="mono">18/19/23/5</span>). Entirely optional.</td></tr>
-        <tr><td>Power</td><td>USB-C, 5&nbsp;V. No battery circuitry.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <p class="small muted" style="margin-top:18px">
-    Pin definitions live in <code>platformio.ini</code> under <code>build_flags</code>, not in a
-    TFT_eSPI <code>User_Setup.h</code> &mdash; nothing in the library folder needs editing.
-  </p>
-
-  <div class="callout">
-    <span class="tag">Verify the pinout first</span>
-    <p>
-      Hosyond does not publish its own datasheet, so the mapping is taken from the
-      LCDwiki listing and cross-checked against the ESP32-Cheap-Yellow-Display
-      community pinouts. Blank screen with the backlight on usually means the driver,
-      not the pins; blank with the backlight off means <code>TFT_BL</code> &mdash; the single
-      most likely pin to differ. The README walks through all five failure modes.
-    </p>
-  </div>
-</section>
-
-<hr class="rule">
-
-<!-- ========================= ENGINEERING ========================= -->
-<section class="wrap" id="engineering">
-  <div class="head-block">
-    <p class="eyebrow">Under the hood</p>
-    <h2>Decisions worth writing down</h2>
-    <p>
-      Most of what is interesting here is not the feature list &mdash; it is what the
-      constraints of a 4&nbsp;MB part with no PSRAM forced.
-    </p>
-  </div>
-
-  <div class="notes">
-    <article class="note">
-      <h3>The touch panel was never miscalibrated</h3>
-      <div>
-        <p>
-          TFT_eSPI's own touch layer produced a panel where calibration appeared not to
-          hold &mdash; taps landed erratically, swipes barely registered. The cause is in
-          <code>validTouch()</code>, which requires two successive samples to agree within
-          20 ADC counts.
-        </p>
-        <p>
-          That is a <em>stationarity test</em>, and a moving finger cannot pass it. It is a
-          reasonable filter for buttons and a fatal one for gestures: most of a swipe is
-          rejected outright, and the readings that survive are whichever ones caught the
-          finger momentarily still &mdash; which is why the symptom presents as bad
-          calibration rather than as dropped input.
-        </p>
-        <p>
-          So the firmware keeps TFT_eSPI for bus arbitration and raw conversions, and
-          replaces only the validation layer: a pressure gate first, a median of five
-          instead of a deadband, the burst bracketed by the pressure gate at both ends,
-          and a release that has to stay quiet for 70&nbsp;ms.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>Two app slots, or no OTA</h3>
-      <div>
-        <p>
-          Flash sits at 96.1% &mdash; high because the partition table splits 4&nbsp;MB into two
-          1.9375&nbsp;MiB app slots, which is what over-the-air updates need: the running
-          image stays put while an update is written into the other.
-        </p>
-        <p>
-          Adding the SD/FAT stack pushed the stock <code>min_spiffs.csv</code> to 98.5%, so
-          the project carries its own table that drops a SPIFFS partition it never
-          mounted and gives 64&nbsp;KB of it to <em>each</em> slot. A unit already in the field
-          needs one USB reflash to actually get that room &mdash; an OTA writes the app slot
-          and nothing else.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>The previews cannot drift</h3>
-      <div>
-        <p>
-          Every screen on this page was produced by <code>tools/preview.sh</code>, which
-          compiles <em>the firmware's own renderer</em> against a small host shim and
-          rasterises the result to a PNG. Nothing in the shim describes the layout, so
-          there is no second copy to keep in step.
-        </p>
-        <p>
-          Its predecessor was a hand-maintained Python reimplementation of the same
-          layout. It fell two commits behind and started rendering a HUD the device no
-          longer drew &mdash; exactly the thing a preview exists to prevent. Between the
-          renderer harness and <code>check_layout.py</code>, six real layout bugs were caught
-          before any hardware existed.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>Direct drawing, not LVGL</h3>
-      <div>
-        <p>
-          A full 480&times;320 16-bpp framebuffer is 307&nbsp;KB against 520&nbsp;KB of SRAM, most
-          already spoken for by the WiFi stack and TLS. The HUD is a fixed, nearly-static
-          arrangement of text and rectangles with no scrolling or animation, so the
-          abstraction buys little.
-        </p>
-        <p>
-          Instead the renderer redraws only what changed, via a content signature rebuilt
-          each frame; the countdown, WiFi indicator and footer each keep their own. Text
-          boxes are composited in small transient sprites and freed immediately. Result:
-          48&nbsp;KB static RAM, leaving roughly 280&nbsp;KB of heap for TLS and sprites.
-        </p>
-      </div>
-    </article>
-
-    <article class="note">
-      <h3>Stale data beats no data</h3>
-      <div>
-        <p>
-          The screen is never blanked or replaced by an error message. A failed fetch
-          keeps the last good data up and switches the footer to a dimmed
-          <span class="mono">STALE &mdash; LAST hh:mm</span>. Repeated failures back off from
-          15&nbsp;seconds to a 10-minute ceiling; a dropped WiFi link turns the header
-          indicator red and nudges a reconnect every 15&nbsp;seconds.
-        </p>
-      </div>
-    </article>
-  </div>
-</section>
-
-<div class="hazard" role="presentation"></div>
-
-<!-- ============================ DEPLOY ============================ -->
-<section class="wrap" id="deploy">
-  <div class="head-block">
-    <p class="eyebrow">Deploy</p>
-    <h2>USB once, then never again</h2>
-    <p>
-      Everything &mdash; platform, board, libraries, display config &mdash; is pinned in
-      <code>platformio.ini</code>. The first build downloads the toolchain and takes a few
-      minutes; later builds take seconds.
-    </p>
-  </div>
-
-<pre><span class="c"># requires PlatformIO Core</span>
-git clone https://github.com/codydoerfler/hd2-desk-monitor.git
-cd hd2-desk-monitor
-
-pio run                 <span class="c"># build</span>
-pio run -t upload       <span class="c"># build + flash over USB-C</span>
-pio device monitor      <span class="c"># serial log @ 115200 baud</span></pre>
-
-  <ol class="steps">
-    <li>
-      <div>
-        <h3>Flash over USB-C</h3>
-        <p>The only time a cable is required. This also writes the partition table, which an OTA cannot.</p>
-      </div>
-    </li>
-    <li>
-      <div>
-        <h3>Join it to WiFi</h3>
-        <p>
-          No credentials are compiled in. On first boot the device raises a captive
-          portal &mdash; join <span class="mono">HD2-Monitor</span>, password
-          <span class="mono">helldive</span>, pick your network and set a UTC offset.
-          Stored in NVS, survives power cycles. If nobody configures it within five
-          minutes it reboots and retries the saved network, so an unattended unit
-          recovers on its own after a router outage.
-        </p>
-      </div>
-    </li>
-    <li>
-      <div>
-        <h3>Set a real contact header</h3>
-        <p>
-          The community API requires every request to identify its caller and returns
-          HTTP 400 without it. <code>HD2_CONTACT_HEADER</code> ships as a placeholder &mdash;
-          replace it with your GitHub handle or an email. This is the courtesy that
-          keeps a free community API open.
-        </p>
-      </div>
-    </li>
-    <li>
-      <div>
-        <h3>Leave it alone</h3>
-        <p>
-          Once an hour the device asks GitHub for the newest release and, if the tag is
-          a higher version than the running image, downloads <code>firmware.bin</code> into
-          the inactive slot and reboots into it. A download that fails halfway leaves the
-          running firmware untouched.
-        </p>
-      </div>
-    </li>
-  </ol>
-
-  <div class="callout">
-    <span class="tag">Optional &mdash; the SD card</span>
-    <p>
-      Without a card the device behaves exactly as it always has; the only difference
-      is one <span class="mono">[sd] no card</span> line in the serial log. With one,
-      the event screens get their own audio from
-      <span class="mono">/audio/mo_new.wav</span>,
-      <span class="mono">mo_success.wav</span> and
-      <span class="mono">mo_failure.wav</span>. A clean checkout synthesises plain
-      terminal tones, so it produces a working card without shipping game audio nobody
-      can redistribute.
-    </p>
+  <div class="cards four">
+    <div class="card">
+      <span class="tag">Setup</span>
+      <p>
+        Plug it in, join it to your WiFi from your phone once. That is the
+        entire setup.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Updates</span>
+      <p>
+        New firmware arrives over the internet on its own. A cable is only ever
+        needed for the very first flash.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Outages</span>
+      <p>
+        Lost the connection? The last good data stays up, quietly marked stale.
+        Stale beats blank.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Touch</span>
+      <p>
+        Swipe to page through planets by hand, tap to dismiss an alert. It keeps
+        cycling on its own either way.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -697,26 +449,20 @@ pio device monitor      <span class="c"># serial log @ 115200 baud</span></pre>
   <div class="cols">
     <div>
       <h3>Major Order Desk Monitor</h3>
-      <p class="small muted">
-        An unofficial fan project by Cody Doerfler. Source, releases and the full
-        build notes are on
-        <a href="https://github.com/codydoerfler/hd2-desk-monitor">GitHub</a>.
+      <p class="small">
+        An unofficial fan project by Cody Doerfler. Built on an ESP32 with a
+        4&Prime; panel, reading the community Helldivers 2 API. If you want the
+        pinout, the partition table and the reason the touch driver had to be
+        rewritten, it's all in the
+        <a href="https://github.com/codydoerfler/hd2-desk-monitor">README on GitHub</a>
+        &mdash; along with everything you'd need to build one.
       </p>
     </div>
     <div>
       <h3>Built on</h3>
       <ul>
-        <li><a href="https://github.com/helldivers-2/api">helldivers-2/api</a> &mdash; data</li>
-        <li><a href="https://github.com/Bodmer/TFT_eSPI">Bodmer/TFT_eSPI</a> &mdash; display</li>
-        <li><a href="https://github.com/tzapu/WiFiManager">tzapu/WiFiManager</a> &mdash; provisioning</li>
-        <li><a href="https://github.com/bblanchon/ArduinoJson">ArduinoJson</a> &mdash; parsing</li>
-      </ul>
-    </div>
-    <div>
-      <h3>Reference</h3>
-      <ul>
-        <li><a href="https://www.lcdwiki.com/4.0inch_ESP32-32E_Display">LCDwiki E32R40T</a></li>
-        <li><a href="https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display">Cheap-Yellow-Display</a></li>
+        <li><a href="https://github.com/helldivers-2/api">helldivers-2/api</a> &mdash; the war data</li>
+        <li><a href="https://github.com/Bodmer/TFT_eSPI">Bodmer/TFT_eSPI</a> &mdash; the display</li>
         <li><a href="https://github.com/codydoerfler/hd2-desk-monitor/releases">Firmware releases</a></li>
       </ul>
     </div>
