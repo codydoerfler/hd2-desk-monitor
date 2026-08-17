@@ -480,6 +480,19 @@ nothing for 30 s and the boot carries on uncalibrated — a panel that is
 unwired, or a board on a desk with nobody near it, must not be able to hold
 the device on this screen forever.
 
+A calibration that takes is confirmed for three seconds before the HUD comes
+up, from either route into one — this screen's, and the hold-at-power-on
+gesture below:
+
+![touch calibration confirmed](docs/preview_touchsuccess.png)
+
+On success only. A calibration that timed out against a panel that stopped
+responding has nothing to confirm, and the unit is about to come up on its
+built-in guess with the footer hint offering another go. Three fixed seconds
+rather than a tap to dismiss: `calibrate()` ends by having asked for a fourth
+corner, and the finger that gave it is usually still on the panel when it
+returns, so a screen dismissible by touch would be a screen nobody sees.
+
 "Never been set up" is deliberately narrower than "has no calibration". Three
 different situations produce an uncalibrated panel and only one of them is a
 fresh unit:
@@ -790,9 +803,12 @@ one `pio run` (they read `.pio/libdeps/...`).
 python3 tools/check_layout.py   # asserts every HUD string fits its box
 ```
 
-Scenes are `boot`, `touchprompt`, `defense`, `invasion`, `liberation`,
-`campaign`, `count`, `extraction`, `idle`, `stale`, `uncalibrated`, `neworder`,
-`success`, `failure` and `carousel`.
+Scenes are `boot`, `touchprompt`, `touchsuccess`, `defense`, `invasion`,
+`liberation`, `campaign`, `count`, `extraction`, `idle`, `stale`,
+`uncalibrated`, `neworder`, `success`, `failure` and `carousel`.
+
+`success` is the Major Order verdict overlay and `touchsuccess` is the touch
+calibration confirmation — unrelated screens with confusable names.
 
 `uncalibrated` is the defence card with the footer's calibration hint up. The
 defence footer is the busiest one — reward, hint and sync clock all in the same

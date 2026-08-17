@@ -30,12 +30,18 @@ class HUDRenderer {
   // Full-screen status pages used before the HUD has data.
   void showBoot(const char *status);
   void showPortal(const char *ssid, const char *pass);
-  // The first-boot calibration prompt: a gold warning card asking to be
-  // touched, drawn from touch_calibration_reference.jpg. Shown once on a unit
-  // that has never been calibrated, and left up while main.cpp waits for a
-  // contact -- touching it is what starts touch::calibrate(), which paints its
-  // own four-corner chrome over the top. See the card constants in config.h.
+  // The two touch calibration screens, drawn from touch_required_reference.jpg
+  // and touch_success_reference.jpg. Same bridge, same wordmark, same card
+  // geometry; they differ in accent, chip, icon and copy. See the cal*
+  // constants in config.h.
+  //
+  // The prompt is shown once on a unit that has never been calibrated, and
+  // left up while main.cpp waits for a contact -- touching it is what starts
+  // touch::calibrate(), which paints its own four-corner chrome over the top.
+  // The confirmation is shown for a few seconds after any calibration that
+  // completes, from either route into one.
   void showTouchPrompt();
+  void showTouchSuccess();
 
   // Paints `m`, repainting only what changed. `nowUtc` drives the clocks.
   void update(const HudModel &m, time_t nowUtc);
@@ -98,12 +104,48 @@ class HUDRenderer {
   void drawCampaignBody(const HudModel &m, const PlanetInfo &p, const RateSample &h);
   void drawWifi(bool up);
   void drawFooter(const HudModel &m, time_t nowUtc);
-  // Pieces of the first-boot calibration card, split out of showTouchPrompt()
-  // only because they are the two that are drawn rather than laid out: a
-  // reticle with a hand tapping its centre, and the diagonal hazard bar along
-  // the card's bottom edge.
+  // --- the two touch calibration screens ---
+  // Everything below is shared by showTouchPrompt() and showTouchSuccess()
+  // except the two body icons, which are what the screens are for.
+  //
+  // The destroyer bridge the card is set on: space, the planet in the
+  // viewport, the ship's structure, the diver. Flat tones, no photograph.
+  void drawBridge();
+  // What drawBridge() left at (x,y). The wordmark is anti-aliased down onto
+  // the bridge and so has to know what is behind each of its edge pixels;
+  // this is the one function that answers that, and drawBridge() paints from
+  // the same geometry so the two cannot disagree.
+  uint16_t bridgeAt(int16_t x, int16_t y);
+  // The HELLDIVERS II mark, box-filtered from the 440x172 cut in hud_icons.h
+  // into an arbitrary box and blended onto the bridge.
+  void drawWordmark(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t ink);
+  // The card, everything but the body: fill, border, header band with its chip
+  // and title, and the hatched band with `bandText` centred in it. `accent` is
+  // the bright member of the colour family, `dim` the one the hatch is drawn
+  // in. `check` swaps the chip's warning triangle for a check in a disc, and
+  // puts the reference's wing marks either side of the band's text.
+  void drawCalCard(uint16_t accent, uint16_t dim, const String &title,
+                   const String &bandText, bool check);
+  // The card's five rows of copy, to the right of its icon: a salutation in
+  // `headColor` and two two-line paragraphs. Both screens set the same rows at
+  // the same rhythm, so only the strings and that one colour are the caller's.
+  void drawCalCopy(uint16_t headColor, const String &head, const String &l1,
+                   const String &l2, const String &l3, const String &l4);
+  // A reticle with a hand tapping its centre (the prompt), and a Super Earth
+  // service medallion (the confirmation), each in an `s`-square box at (x,y).
   void drawCalReticle(int16_t x, int16_t y, int16_t s);
-  void drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h);
+  void drawCalMedallion(int16_t x, int16_t y, int16_t s);
+  // The diagonal hatch along the card's bottom edge.
+  void drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t ink);
+  // A ring segment: every pixel between `rIn` and `rOut` of (cx,cy) whose angle
+  // is in [a0,a1], degrees, measured from +x with y downward. There is no
+  // drawArc() in this TFT_eSPI build's shim, and the medallion's laurel is the
+  // only thing on the panel that needs one.
+  void drawArcRing(int16_t cx, int16_t cy, int16_t rIn, int16_t rOut, float a0,
+                   float a1, uint16_t c);
+  // A filled five-pointed star of radius `r`, point up. The medallion's rank
+  // row is five of them.
+  void drawStar(int16_t cx, int16_t cy, int16_t r, uint16_t c);
   // A full-screen event announcement: the new-order dispatch, or a verdict on
   // one that has ended. Takes the whole panel — no frame chrome, no carousel,
   // no clocks — because it is meant to interrupt, and stays up until it is

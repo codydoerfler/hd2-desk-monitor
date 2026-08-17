@@ -1,5 +1,7 @@
 #include "hud_renderer.h"
 
+#include <math.h>  // the medallion's laurel; nothing else here needs trig
+
 #include "config.h"
 #include "hd2_api.h"   // formatDuration / formatCompact
 #include "hud_fonts.h" // must be included by exactly one .cpp
@@ -1787,19 +1789,268 @@ void HUDRenderer::showPortal(const char *ssid, const char *pass) {
 }
 
 // ---------------------------------------------------------------------------
-//  First-boot touch calibration prompt
+//  The two touch calibration screens
 //
-//  The reference art is a photograph of a ship's bridge with a warning card
-//  over it. What is reproduced here is the card: the bands and their
-//  proportions, the badge, the reticle, the hazard bar. The photograph and the
-//  game's wordmark are not, deliberately -- see the note over the cal*
-//  constants in config.h.
+//  Traced from touch_required_reference.jpg and touch_success_reference.jpg:
+//  a destroyer bridge, the HELLDIVERS II mark centred over it, and one card
+//  below that -- amber with a reticle to ask for a calibration, green with a
+//  service medallion to confirm one. Everything the two share is drawn by the
+//  same code and coloured by the caller; see the cal* constants in config.h
+//  for the geometry and for where this deliberately departs from the art.
 //
-//  Drawn from primitives rather than added to hud_icons.h. A 76px reticle as a
-//  1-bit bitmap is 722 bytes of an image already sitting at 96% of its flash
+//  Drawn from primitives rather than added to hud_icons.h. A 92px reticle as a
+//  1-bit bitmap is 1,058 bytes of an image already sitting at 96% of its flash
 //  slot, for a shape that is two circles and eight straight runs; the hazard
-//  bar could not be a bitmap at all without storing it at full width.
+//  hatch could not be a bitmap at all without storing it at full width; and
+//  the wordmark is scaled from the cut the boot screen already carries rather
+//  than stored a second time at this size.
+//
+//  What the panel does not get, and could not: the reference's photographic
+//  bridge, the bloom around the wordmark, and the diver as a full figure. The
+//  first two are gradients over most of a frame and there is no framebuffer to
+//  composite them in; the third has nowhere to stand once the card is as wide
+//  as legible 9pt copy makes it.
 // ---------------------------------------------------------------------------
+
+// The colour drawBridge() leaves at (x,y), for the wordmark's anti-aliased
+// edges to blend against. Only the three tones the wordmark can land on --
+// space, the planet, and the planet's limb -- because the wordmark's box is
+// clear of the ship structure by construction (see calLogoY).
+uint16_t HUDRenderer::bridgeAt(int16_t x, int16_t y) {
+  const int32_t dx = x - calDiscX, dy = y - calDiscY;
+  const int32_t d2 = dx * dx + dy * dy;
+  if (d2 > (int32_t)calDiscR * calDiscR) return theme::voidBlue;
+  // Two 1px rings, so the limb survives the panel's own subpixel structure.
+  if (d2 > (int32_t)(calDiscR - 2) * (calDiscR - 2)) return theme::discRim;
+  return theme::discFill;
+}
+
+// The bridge itself: space, the planet in the viewport, the ship's structure
+// around the frame, and the diver watching from the left.
+//
+// Five flat tones and no gradients. The reference is a photograph, and the
+// honest options at 480x320 with no framebuffer are a flat impression of it or
+// nothing at all -- so this is the impression: what is in it, and roughly
+// where, at the reference's own proportions.
+void HUDRenderer::drawBridge() {
+  _tft.fillScreen(theme::voidBlue);
+
+  // The planet. Its lit limb breaks the top of the screen and the rest of it
+  // goes behind the card, which is what the reference does with it too.
+  _tft.fillCircle(calDiscX, calDiscY, calDiscR, theme::discFill);
+  _tft.drawCircle(calDiscX, calDiscY, calDiscR, theme::discRim);
+  _tft.drawCircle(calDiscX, calDiscY, calDiscR - 1, theme::discRim);
+
+  // Ceiling beam and two struts hanging off it. Kept above y=10 so the
+  // wordmark never has to blend against them -- see bridgeAt().
+  _tft.fillRect(0, 0, screenW, 9, theme::hull);
+  _tft.drawFastHLine(0, 9, screenW, theme::hullEdge);
+  _tft.fillRect(118, 10, 4, 13, theme::hull);
+  _tft.fillRect(358, 10, 4, 13, theme::hull);
+
+  // The consoles either side of the card, and the deck under it. These are the
+  // only things holding the card off the edges of the panel, so they run the
+  // card's own height rather than the reference's full frame.
+  _tft.fillRect(0, 58, 16, 218, theme::hull);
+  _tft.fillRect(screenW - 16, 58, 16, 218, theme::hull);
+  _tft.drawFastVLine(15, 58, 218, theme::hullEdge);
+  _tft.drawFastVLine(screenW - 16, 58, 218, theme::hullEdge);
+  _tft.fillRect(0, 301, screenW, screenH - 301, theme::hull);
+  _tft.drawFastHLine(0, 300, screenW, theme::hullEdge);
+
+  // The diver: cape, shoulders with the yellow pauldron, and a helmet whose
+  // crown catches the light. Seen from behind and facing into the screen, as
+  // in the reference, and running off the bottom of its box into the card's
+  // top edge the way the reference's runs off the bottom of the frame.
+  //
+  // The pauldron and the crown are the whole reason this reads as anything.
+  // Everything else here is one near-black on another, at 48px, in a corner --
+  // the two scraps of yellow are what say armour rather than smudge, and they
+  // are what the eye actually picks the figure out by in the reference too.
+  const int16_t hx = calDiverX + calDiverW / 2, hy = calDiverY + 19;
+  _tft.fillRect(calDiverX, calDiverY + 36, 12, calDiverH - 36, theme::diverInk);
+  _tft.fillCircle(calDiverX + 10, calDiverY + 40, 8, theme::diverInk);
+  _tft.fillCircle(calDiverX + 38, calDiverY + 40, 8, theme::diverInk);
+  _tft.fillRect(calDiverX + 10, calDiverY + 40, 28, calDiverH - 40, theme::diverInk);
+  _tft.fillRect(hx - 7, hy + 11, 14, 9, theme::diverInk);   // neck
+  _tft.fillRect(calDiverX + 30, calDiverY + 36, 12, 9, theme::goldMute);  // pauldron
+
+  // Crown then helmet, not helmet then crown: a filled disc overpainted by a
+  // second one dropped 4px leaves a crescent along the top, where an arc ring
+  // walked by angle over the same band came out visibly stippled at r=15.
+  _tft.fillCircle(hx, hy, 15, theme::goldMute);
+  _tft.fillCircle(hx, hy + 4, 14, theme::diverInk);
+  _tft.fillRect(hx + 2, hy + 1, 11, 6, theme::voidBlue);    // visor slot
+}
+
+// The HELLDIVERS II mark, scaled into (x,y,w,h) and blended onto the bridge.
+//
+// hud_icons.h already carries this art at 440x172 for the boot screen, which
+// is 2.6x the height this band has. Box-filtered down rather than cut a second
+// time: another PROGMEM copy is ~1.4KB of a flash slot at 96%, and this is
+// code, which the slot has more room for than data. Nearest-neighbour at this
+// ratio was tried first and eats the wing slots and the skull's eye sockets
+// outright -- every one of them is under a source pixel wide at the
+// destination, so which way they round is a coin toss per column.
+//
+// Each destination pixel averages the source rectangle it covers and the
+// coverage drives a blend from the bridge behind it to `ink`, which is why
+// this needs bridgeAt() rather than a background colour: the planet's limb
+// passes straight through the mark.
+void HUDRenderer::drawWordmark(int16_t x, int16_t y, int16_t w, int16_t h,
+                               uint16_t ink) {
+  const int16_t sw = icons::hd2LogoBootW, sh = icons::hd2LogoBootH;
+  const int16_t stride = (sw + 7) / 8;
+  const int16_t ir = (ink >> 11) & 0x1F, ig = (ink >> 5) & 0x3F, ib = ink & 0x1F;
+
+  for (int16_t dy = 0; dy < h; dy++) {
+    const int16_t sy0 = (int16_t)(((int32_t)dy * sh) / h);
+    int16_t sy1 = (int16_t)(((int32_t)(dy + 1) * sh) / h);
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    for (int16_t dx = 0; dx < w; dx++) {
+      const int16_t sx0 = (int16_t)(((int32_t)dx * sw) / w);
+      int16_t sx1 = (int16_t)(((int32_t)(dx + 1) * sw) / w);
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+
+      int16_t on = 0, total = 0;
+      for (int16_t sy = sy0; sy < sy1; sy++) {
+        const uint8_t *row = icons::hd2LogoBoot + (int32_t)sy * stride;
+        for (int16_t sx = sx0; sx < sx1; sx++, total++)
+          if (row[sx >> 3] & (0x80 >> (sx & 7))) on++;
+      }
+      if (!on) continue;  // clear of the mark; leave the bridge alone
+
+      const uint16_t under = bridgeAt(x + dx, y + dy);
+      const int16_t ur = (under >> 11) & 0x1F, ug = (under >> 5) & 0x3F;
+      const int16_t ub = under & 0x1F;
+      const int16_t r = ur + ((ir - ur) * on) / total;
+      const int16_t g = ug + ((ig - ug) * on) / total;
+      const int16_t b = ub + ((ib - ub) * on) / total;
+      _tft.drawPixel(x + dx, y + dy, (uint16_t)((r << 11) | (g << 5) | b));
+    }
+  }
+}
+
+// A ring segment between rIn and rOut, from a0 to a1 degrees measured from +x
+// with y downward. Walked by angle rather than over a bounding box: one step
+// per pixel of the outer circumference leaves no gaps, where the box version
+// wants an atan2() per pixel of a rectangle that is mostly outside the ring.
+void HUDRenderer::drawArcRing(int16_t cx, int16_t cy, int16_t rIn, int16_t rOut,
+                              float a0, float a1, uint16_t c) {
+  constexpr float kDeg = 0.01745329252f;
+  const float step = rOut > 0 ? 1.0f / (float)rOut : 0.1f;
+  for (float a = a0 * kDeg; a <= a1 * kDeg; a += step) {
+    const float ca = cosf(a), sa = sinf(a);
+    for (int16_t r = rIn; r <= rOut; r++)
+      _tft.drawPixel(cx + (int16_t)lroundf(ca * r), cy + (int16_t)lroundf(sa * r), c);
+  }
+}
+
+// A filled five-pointed star, point up, in the medallion's rank row.
+//
+// The ten vertices are a table rather than five cosines: they are the same
+// angles every time this is called, and at r=4 the whole shape is eight pixels
+// across -- computing it would cost more than storing it.
+void HUDRenderer::drawStar(int16_t cx, int16_t cy, int16_t r, uint16_t c) {
+  static const int8_t kUnit[10][2] = {
+      {0, -100}, {25, -34}, {95, -31},  {40, 13},  {59, 81},
+      {0, 42},   {-59, 81}, {-40, 13},  {-95, -31}, {-25, -34}};
+  int16_t px[10], py[10];
+  for (uint8_t i = 0; i < 10; i++) {
+    px[i] = cx + (int16_t)((kUnit[i][0] * r) / 100);
+    py[i] = cy + (int16_t)((kUnit[i][1] * r) / 100);
+  }
+  for (uint8_t i = 0; i < 10; i++)
+    _tft.fillTriangle(cx, cy, px[i], py[i], px[(i + 1) % 10], py[(i + 1) % 10], c);
+}
+
+// Everything the two calibration cards have in common: the panel and its
+// border, the chip and title in the header band, the rule under it, and the
+// hatched band across the foot with its text plate.
+//
+// The caller supplies the accent (gold or lime), the dimmed accent for the
+// hatch, the two strings, and `check` -- which picks the chip's mark, and with
+// it the wing flashes either side of the band text. Only the body between the
+// rules differs between the screens, and that is the caller's to fill.
+void HUDRenderer::drawCalCard(uint16_t accent, uint16_t dim, const String &title,
+                              const String &bandText, bool check) {
+  _tft.fillRect(calCardX, calCardY, calCardW, calCardH, theme::panel);
+  _tft.drawRect(calCardX, calCardY, calCardW, calCardH, accent);
+  const int16_t inX = calCardX + 1, inW = calCardW - 2;
+  const int16_t headRuleY = calCardY + calHeadH;
+  const int16_t stripeY = calCardY + calCardH - calStripeH;
+
+  // --- header: chip, title, rule -------------------------------------------
+  const int16_t badgeX = calCardX + calBadgeInset;
+  const int16_t badgeY = calCardY + 1 + (calHeadH - 1 - calBadgeH) / 2;
+  // A tab whose trailing edge leans outward on the way down, so it is wider at
+  // its foot than at its head. The slant is what stops it reading as a plain
+  // rectangle at 40px, and its direction is the reference's.
+  _tft.fillRect(badgeX, badgeY, calBadgeW - calBadgeSlant, calBadgeH, accent);
+  _tft.fillTriangle(badgeX + calBadgeW - calBadgeSlant, badgeY,
+                    badgeX + calBadgeW - calBadgeSlant, badgeY + calBadgeH - 1,
+                    badgeX + calBadgeW, badgeY + calBadgeH - 1, accent);
+
+  // The mark is knocked out of the tab in the card's own fill colour and then
+  // detailed back in the accent -- accent-on-dark-on-accent, which is how both
+  // references build their chips.
+  const int16_t tcx = badgeX + (calBadgeW - calBadgeSlant) / 2;
+  const int16_t tcy = badgeY + calBadgeH / 2;
+  if (check) {
+    _tft.fillCircle(tcx, tcy, 10, theme::panel);
+    // A 3px pen walked down and then up, one pixel per step. Two runs of
+    // squares, not two triangle pairs: at this size a quad's ends land on
+    // whichever side of a half-pixel the rounding picks, and the short arm
+    // comes out a different weight from the long one.
+    for (int16_t i = 0; i < 5; i++)
+      _tft.fillRect(tcx - 7 + i, tcy - 2 + i, 3, 3, accent);
+    for (int16_t i = 0; i < 9; i++)
+      _tft.fillRect(tcx - 4 + i, tcy + 3 - i, 3, 3, accent);
+  } else {
+    const int16_t tTop = badgeY + 5, tBot = badgeY + calBadgeH - 5;
+    _tft.fillTriangle(tcx, tTop, tcx - 11, tBot, tcx + 11, tBot, theme::panel);
+    _tft.fillRect(tcx - 1, tTop + 8, 3, 7, accent);
+    _tft.fillRect(tcx - 1, tBot - 4, 3, 3, accent);
+  }
+
+  // Label weight, not value weight: "TOUCH CALIBRATION SUCCESSFUL" is 421px at
+  // FONT_VALUE and there are 364 to put it in -- and label weight is also the
+  // proportionally right answer, the reference's header caps being about 7.5%
+  // of the card's height, which on 190px is the ~13px FreeSansBold9pt gives.
+  const int16_t titleX = badgeX + calBadgeW + calTitleGap;
+  textBox(titleX, badgeY, calCardX + calCardW - calTextPadR - titleX, calBadgeH,
+          theme::panel, FONT_LABEL, accent, ML_DATUM, title);
+  _tft.drawFastHLine(inX, headRuleY, inW, accent);
+
+  // --- the hatched band ----------------------------------------------------
+  // stripeY-1 is the rule; the hatch runs from stripeY down to the row above
+  // the card's bottom border, which is calStripeH-1 rows in all.
+  _tft.drawFastHLine(inX, stripeY - 1, inW, accent);
+  drawHazardBar(inX, stripeY, inW, calStripeH - 1, dim);
+
+  // The band's text sits on a plate of the screen's own background so the
+  // hatch does not run through the letterforms, as in both references.
+  const int16_t bandY = stripeY + (calStripeH - 1 - calBandTextH) / 2;
+  textBox(calBandTextX, bandY, calBandTextW, calBandTextH, theme::bg, FONT_LABEL,
+          accent, MC_DATUM, bandText);
+
+  if (!check) return;
+
+  // Three-bar wing flashes either side of "FOR SUPER EARTH!", stepping shorter
+  // as they go outward. Measured off the string rather than placed at a fixed
+  // x: the plate is wider than the text and marks pinned to the plate's edges
+  // would sit in open background instead of against the words.
+  _tft.setFreeFont(FONT_LABEL);
+  const int16_t half = _tft.textWidth(bandText.c_str()) / 2;
+  const int16_t cx = calBandTextX + calBandTextW / 2;
+  const int16_t my = bandY + calBandTextH / 2;
+  const int16_t bar[3] = {14, calMarkW, 14};
+  for (uint8_t i = 0; i < 3; i++) {
+    const int16_t row = my - 4 + i * 3;
+    _tft.fillRect(cx - half - calMarkGap - bar[i], row, bar[i], 2, accent);
+    _tft.fillRect(cx + half + calMarkGap, row, bar[i], 2, accent);
+  }
+}
 
 // A reticle with a hand tapping its centre, in an `s`-square box at (x,y).
 // Ring, four crosshair ticks through it, a small target at the middle, and a
@@ -1883,13 +2134,95 @@ void HUDRenderer::drawCalReticle(int16_t x, int16_t y, int16_t s) {
   }
 }
 
-// The diagonal hazard bar along the card's bottom edge.
+// The service medallion, in an `s`-square box at (x,y): three fins, a laurel
+// wreath around a globe, and a rank row of five stars under it. The success
+// card's answer to the required card's reticle, and the same box.
+//
+// Proportioned off the reference rather than off round numbers -- fins a
+// seventh of the box, wreath two thirds, stars a sixth -- because the three
+// parts are what identify it, and a wreath drawn to fill the box swallows the
+// other two.
+void HUDRenderer::drawCalMedallion(int16_t x, int16_t y, int16_t s) {
+  const int16_t cx = x + s / 2;
+  const int16_t cy = y + 42;  // fins above, stars below; see the ratios above
+  const int16_t r = 19;       // the globe; the wreath adds 11 outside it
+
+  // The crest, in the silver the reference has it in rather than the wreath's
+  // gold. Drawn first and overlapping the globe, so the disc paints over the
+  // feet and the three fins read as standing behind it -- which at 15px is the
+  // whole difference between a crest and three loose triangles floating above
+  // a ball.
+  _tft.fillTriangle(cx, y + 13, cx - 5, y + 28, cx + 5, y + 28, theme::text);
+  _tft.fillTriangle(cx - 10, y + 17, cx - 14, y + 28, cx - 6, y + 28, theme::text);
+  _tft.fillTriangle(cx + 10, y + 17, cx + 6, y + 28, cx + 14, y + 28, theme::text);
+
+  // The globe: a pale disc, the graticule, then the landmasses over it.
+  //
+  // That order is the point. Drawn the other way round -- grid last, over
+  // everything -- 38px of white disc under three dark meridians and three dark
+  // latitudes reads as a beach ball, because the grid is then the highest-
+  // contrast thing in the icon and the continents are just tint between its
+  // cells. Painting the land last makes the grid the ocean's texture and the
+  // continents the shapes, which is what the reference's globe is.
+  _tft.fillCircle(cx, cy, r, theme::text);
+
+  // Latitudes are chords, so each one is as long as the sphere is wide there;
+  // meridians are drawn as straight verticals at the same three fractions of
+  // the radius, which at 38px across is indistinguishable from the ellipses a
+  // real projection would want and is four runs instead of a per-pixel solve.
+  for (int8_t k = -1; k <= 1; k++) {
+    const int16_t dy = k * 10;
+    const int16_t half = (int16_t)lroundf(sqrtf((float)(r * r - dy * dy)));
+    _tft.drawFastHLine(cx - half, cy + dy, 2 * half + 1, theme::grey);
+  }
+  _tft.drawFastVLine(cx, cy - r, 2 * r + 1, theme::grey);
+  for (int8_t k = -1; k <= 1; k += 2) {
+    const int16_t dx = k * r / 2;
+    const int16_t half = (int16_t)lroundf(sqrtf((float)(r * r - dx * dx)));
+    _tft.drawFastVLine(cx + dx, cy - half, 2 * half + 1, theme::grey);
+  }
+
+  // Landmasses, in overlapping pairs rather than one circle each: a lone disc
+  // reads as a dot at this size, and two of them off-centre gives an edge that
+  // is not an arc, which is the only cue that says coastline.
+  _tft.fillCircle(cx - 6, cy - 6, 5, theme::cardEdge);
+  _tft.fillCircle(cx - 2, cy - 2, 4, theme::cardEdge);
+  _tft.fillCircle(cx + 6, cy + 2, 5, theme::cardEdge);
+  _tft.fillCircle(cx + 3, cy + 8, 3, theme::cardEdge);
+  _tft.fillCircle(cx - 8, cy + 7, 3, theme::cardEdge);
+  _tft.drawCircle(cx, cy, r, theme::grey);
+
+  // The wreath: two nested crescents open at the top, gold.
+  //
+  // Both ends stop short of horizontal (12 degrees below it on the outer arm,
+  // 30 on the inner). An earlier cut ran the outer one from -12 to 192, i.e.
+  // up past the globe's equator on both sides, and the two tips curling up
+  // above the widest point turned the pair into a chain necklace. Leaves are
+  // gone with them -- eight dots threaded between the arms at r+8 were what
+  // made the links.
+  drawArcRing(cx, cy, r + 4, r + 6, 12.f, 168.f, theme::gold);
+  drawArcRing(cx, cy, r + 9, r + 11, 30.f, 150.f, theme::gold);
+
+  // Rank row. Five, as in the reference, and small enough that the row reads
+  // as one element rather than as five things.
+  for (int8_t i = 0; i < 5; i++)
+    drawStar(cx - 24 + i * 12, y + 82, 4, theme::text);
+}
+
+// The diagonal hazard band along the card's bottom edge, hatched in `ink`.
 //
 // Built as one horizontal run per row rather than as diagonal lines: at 45
 // degrees a stripe's start moves exactly one pixel per row, so the whole band
 // is a stack of offset runs -- which is both what the available primitives can
 // draw and faster than the general case would be.
-void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h) {
+//
+// Thin lines widely spaced, not the bold alternating stripes a hazard bar
+// usually means: both references hatch this band at roughly a fifth duty in a
+// dimmed version of the card's accent, so it stays a texture behind the band's
+// text instead of competing with it. The success screen is the reason this
+// takes a colour -- green stripes at gold's weight read as damage.
+void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h,
+                                uint16_t ink) {
   _tft.fillRect(x, y, w, h, theme::bg);
   for (int16_t row = 0; row < h; row++) {
     // Stripes lean up-and-to-the-right, so their start walks left as the row
@@ -1900,98 +2233,104 @@ void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h) {
       if (b <= 0 || a >= w) continue;
       if (a < 0) a = 0;
       if (b > w) b = w;
-      _tft.drawFastHLine(x + a, y + row, b - a, theme::gold);
+      _tft.drawFastHLine(x + a, y + row, b - a, ink);
     }
   }
+}
+
+// The five rows of copy to the right of the card's icon: a coloured salutation
+// and two two-line paragraphs, at the same rhythm on both screens.
+//
+// TL_DATUM, unlike everything else on the panel -- see the note over the
+// calAddrDy/calLineH constants. These are the HUD's only mixed-case rows and
+// the middle datum's ascent-only centring drops their descenders out of the
+// sprite unless the rows are made a third taller than the type needs.
+void HUDRenderer::drawCalCopy(uint16_t headColor, const String &head,
+                              const String &l1, const String &l2,
+                              const String &l3, const String &l4) {
+  const int16_t bodyY = calCardY + calHeadH + 1;
+  const int16_t textX = calCardX + calIconInset + calIconS + calTextGap;
+  const int16_t textW = calCardX + calCardW - calTextPadR - textX;
+
+  textBox(textX, bodyY + calAddrDy, textW, calAddrH, theme::panel, FONT_LABEL,
+          headColor, TL_DATUM, head);
+
+  // Both paragraphs in the same white. The first draft dimmed the second to
+  // theme::grey the way the HUD's own secondary rows are dimmed; both
+  // references have them at one weight, and the card is small enough that the
+  // dimmed pair read as a footnote rather than as the rest of the sentence.
+  int16_t ly = bodyY + calCopyDy;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, l1);
+  ly += calLineH;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, l2);
+  ly += calLineH + calParaGap;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, l3);
+  ly += calLineH;
+  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
+          TL_DATUM, l4);
+}
+
+// Where the icon goes on both cards: centred in what is left of the card
+// between the header rule and the band rule.
+static inline int16_t calIconY() {
+  const int16_t bodyY = calCardY + calHeadH + 1;
+  const int16_t bodyH = calCardY + calCardH - calStripeH - 1 - bodyY;
+  return bodyY + (bodyH - calIconS) / 2;
 }
 
 void HUDRenderer::showTouchPrompt() {
   invalidate();
   _cardMode = false;
-  _tft.fillScreen(theme::bg);
-  drawFrame();
-  drawStatusHeader();
 
-  // --- the card ------------------------------------------------------------
-  _tft.fillRect(calCardX, calCardY, calCardW, calCardH, theme::panel);
-  _tft.drawRect(calCardX, calCardY, calCardW, calCardH, theme::gold);
-  const int16_t inX = calCardX + 1, inW = calCardW - 2;
-  const int16_t headRuleY = calCardY + calHeadH;
-  const int16_t bodyY = headRuleY + 1;
-  const int16_t stripeY = calCardY + calCardH - calStripeH;
+  drawBridge();
+  drawWordmark(calLogoX, calLogoY, calLogoW, calLogoH, theme::text);
 
-  // --- header: badge, title, rule ------------------------------------------
-  const int16_t badgeX = calCardX + calBadgeInset;
-  const int16_t badgeY = calCardY + 1 + (calHeadH - 1 - calBadgeH) / 2;
-  // A gold tab whose trailing edge leans outward on the way down, so the tab is
-  // wider at its foot than at its head. The slant is what stops it reading as a
-  // plain rectangle at 40px, and its direction is the reference's.
-  _tft.fillRect(badgeX, badgeY, calBadgeW - calBadgeSlant, calBadgeH, theme::gold);
-  _tft.fillTriangle(badgeX + calBadgeW - calBadgeSlant, badgeY,
-                    badgeX + calBadgeW - calBadgeSlant, badgeY + calBadgeH - 1,
-                    badgeX + calBadgeW, badgeY + calBadgeH - 1, theme::gold);
-  // The warning triangle is knocked out of the tab in the card's own fill
-  // colour, with a gold exclamation inside it -- gold-on-dark-on-gold, exactly
-  // as in the reference. (The task file's parenthetical suggested theme::red
-  // here; the reference supersedes it. One constant if that is wrong.)
-  const int16_t tcx = badgeX + (calBadgeW - calBadgeSlant) / 2;
-  const int16_t tTop = badgeY + 5, tBot = badgeY + calBadgeH - 5;
-  _tft.fillTriangle(tcx, tTop, tcx - 11, tBot, tcx + 11, tBot, theme::panel);
-  _tft.fillRect(tcx - 1, tTop + 8, 3, 7, theme::gold);
-  _tft.fillRect(tcx - 1, tBot - 4, 3, 3, theme::gold);
+  // The band text is the screen's only affordance, so it is named outright. It
+  // does not promise the wait is unlimited, because it is not: main.cpp gives
+  // this a bounded wait and boots on regardless, and a unit nobody was standing
+  // in front of ends up on the HUD with the footer hint carrying the offer.
+  //
+  // In the band rather than under the card, which is where the earlier cut put
+  // it. The reference has no such line at all -- its band carries a stencilled
+  // legend -- and the band is the one place on this screen that belongs to
+  // neither the card's message nor the bridge, so the instruction goes there
+  // and the success screen's "FOR SUPER EARTH!" sits in the same slot.
+  drawCalCard(theme::gold, theme::goldDim, F("TOUCH CALIBRATION REQUIRED"),
+              F("TOUCH ANYWHERE TO BEGIN"), false);
 
-  // Label weight, not value weight: "TOUCH CALIBRATION REQUIRED" is 394px at
-  // FONT_VALUE and there are 364 to put it in -- and label weight is also the
-  // proportionally right answer, the reference's header caps being about 7.5%
-  // of the card's height, which on 204px is the ~13px FreeSansBold9pt gives.
-  const int16_t titleX = badgeX + calBadgeW + calTitleGap;
-  textBox(titleX, badgeY, calCardX + calCardW - calTextPadR - titleX, calBadgeH,
-          theme::panel, FONT_LABEL, theme::gold, ML_DATUM,
-          F("TOUCH CALIBRATION REQUIRED"));
-  _tft.drawFastHLine(inX, headRuleY, inW, theme::gold);
-
-  // --- body: reticle, then the copy beside it ------------------------------
-  const int16_t bodyH = stripeY - 1 - bodyY;
-  drawCalReticle(calCardX + calIconInset, bodyY + (bodyH - calIconS) / 2, calIconS);
-
-  // TL_DATUM, unlike everything else on the panel -- see the note over the
-  // calAddrDy/calLineH constants. These are the HUD's only mixed-case rows and
-  // the middle datum's ascent-only centring drops their descenders out of the
-  // sprite unless the rows are made a third taller than the type needs.
-  const int16_t textX = calCardX + calIconInset + calIconS + calTextGap;
-  const int16_t textW = calCardX + calCardW - calTextPadR - textX;
-  textBox(textX, bodyY + calAddrDy, textW, calAddrH, theme::panel, FONT_LABEL,
-          theme::text, TL_DATUM, F("Helldiver,"));
+  drawCalReticle(calCardX + calIconInset, calIconY(), calIconS);
 
   // Written for this panel rather than lifted from the reference: the wording
   // there is the game's, and this one has to say what this device actually
   // wants, which is a calibration and not a mission.
-  int16_t ly = bodyY + calCopyDy;
-  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
-          TL_DATUM, F("This terminal's touch interface is"));
-  ly += calLineH;
-  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::text,
-          TL_DATUM, F("not yet calibrated."));
-  ly += calLineH + calParaGap;
-  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::grey,
-          TL_DATUM, F("Run a calibration to ensure accurate"));
-  ly += calLineH;
-  textBox(textX, ly, textW, calLineH, theme::panel, FONT_BODY, theme::grey,
-          TL_DATUM, F("targeting and stratagem deployment."));
+  drawCalCopy(theme::text, F("Helldiver,"), F("This terminal's touch interface is"),
+              F("not yet calibrated."), F("Run a calibration to ensure accurate"),
+              F("targeting and stratagem deployment."));
 
-  // --- hazard bar ----------------------------------------------------------
-  // stripeY-1 is the rule; the stripes run from stripeY down to the row above
-  // the card's bottom border, which is calStripeH-1 rows in all.
-  _tft.drawFastHLine(inX, stripeY - 1, inW, theme::gold);
-  drawHazardBar(inX, stripeY, inW, calStripeH - 1);
+  _chromeDrawn = false;
+}
 
-  // --- the way out ---------------------------------------------------------
-  // The only affordance on the screen, so it is named outright. It does not
-  // promise the wait is unlimited, because it is not: main.cpp gives this a
-  // bounded wait and boots on regardless, and a unit nobody was standing in
-  // front of ends up on the HUD with the footer hint carrying the offer.
-  textBox(padX, calCtaY - calCtaH / 2, contentW, calCtaH, theme::bg, FONT_LABEL,
-          theme::gold, MC_DATUM, F("TOUCH ANYWHERE TO BEGIN"));
+void HUDRenderer::showTouchSuccess() {
+  invalidate();
+  _cardMode = false;
+
+  drawBridge();
+  drawWordmark(calLogoX, calLogoY, calLogoW, calLogoH, theme::text);
+  drawCalCard(theme::lime, theme::limeDim, F("TOUCH CALIBRATION SUCCESSFUL"),
+              F("FOR SUPER EARTH!"), true);
+
+  drawCalMedallion(calCardX + calIconInset, calIconY(), calIconS);
+
+  // The headline takes the card's accent where the required screen's takes
+  // white: on that screen "Helldiver," is an address and the amber belongs to
+  // the warning, and on this one the headline *is* the good news. Both
+  // references do the same.
+  drawCalCopy(theme::lime, F("Calibration Complete!"),
+              F("Your touchscreen has been calibrated"), F("successfully."),
+              F("Super Earth thanks you for your"), F("commitment to victory."));
 
   _chromeDrawn = false;
 }
