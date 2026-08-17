@@ -10,9 +10,12 @@
 #      ./tools/preview.sh            # every scene
 #      ./tools/preview.sh defense    # just one
 #
-#  Scenes: boot, touchprompt, defense, invasion, liberation, campaign, count,
-#          extraction, idle, stale, uncalibrated, neworder, success, failure,
-#          carousel.
+#  Scenes: boot, touchprompt, touchsuccess, defense, invasion, liberation,
+#          campaign, count, extraction, idle, stale, uncalibrated, neworder,
+#          success, failure, carousel.
+#
+#  `success` is the Major Order verdict overlay; `touchsuccess` is the touch
+#  calibration confirmation. Unrelated screens, easily confused by name.
 #
 #  `carousel` is the odd one out: it is shot after a page advance rather than
 #  onto a cleared screen, so it covers the incremental repaint path the device

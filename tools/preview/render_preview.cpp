@@ -377,9 +377,13 @@ int main(int argc, char **argv) {
     printf("wrote preview_boot.png\n");
   };
 
-  // Neither does the first-boot calibration prompt. What this cannot shoot is
-  // the flow around it -- whether a genuinely empty NVS reaches this screen at
-  // all, and what a real finger does to it -- only the card itself.
+  // Neither do the two calibration screens. What these cannot shoot is the flow
+  // around them -- whether a genuinely empty NVS reaches the prompt at all,
+  // what a real finger does to it, and whether touch::calibrate() returns true
+  // often enough for the confirmation to be worth having -- only the cards.
+  //
+  // `touchsuccess` and not `success`: that name is already the Major Order
+  // verdict overlay, and these two have nothing to do with each other.
   auto shootTouchPrompt = [&]() {
     hud.showTouchPrompt();
     writePng("preview_touchprompt.png", tft.pixels(), tft.width(), tft.height(),
@@ -387,10 +391,18 @@ int main(int argc, char **argv) {
     printf("wrote preview_touchprompt.png\n");
   };
 
+  auto shootTouchSuccess = [&]() {
+    hud.showTouchSuccess();
+    writePng("preview_touchsuccess.png", tft.pixels(), tft.width(), tft.height(),
+             scale);
+    printf("wrote preview_touchsuccess.png\n");
+  };
+
   if (argc > 1) {
     const String want = argv[1];
     if (want == "boot") { shootBoot(); return 0; }
     if (want == "touchprompt") { shootTouchPrompt(); return 0; }
+    if (want == "touchsuccess") { shootTouchSuccess(); return 0; }
     if (want == "carousel") { shootAdvance(want, sceneCarousel()); return 0; }
     auto it = scenes.find(want);
     if (it == scenes.end()) { fprintf(stderr, "unknown scene: %s\n", argv[1]); return 1; }
@@ -400,6 +412,7 @@ int main(int argc, char **argv) {
 
   shootBoot();
   shootTouchPrompt();
+  shootTouchSuccess();
   for (auto &kv : scenes) shoot(kv.first, kv.second());
   shootAdvance("carousel", sceneCarousel());
   return 0;

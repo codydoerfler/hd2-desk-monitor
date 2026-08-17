@@ -88,9 +88,10 @@ update, from SD-card clips where a card is present.
 `tools/preview.sh` compiles the firmware's own renderer on the host (not the
 ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
 to check a layout/art change before flashing real hardware. Scenes: `boot`,
-`touchprompt`, `idle`, `liberation`, `defense`, `invasion`, `stale`,
-`uncalibrated`, `campaign`, `count`, `extraction`, `neworder`, `success`,
-`failure`, `carousel`. All but the last
+`touchprompt`, `touchsuccess`, `idle`, `liberation`, `defense`, `invasion`,
+`stale`, `uncalibrated`, `campaign`, `count`, `extraction`, `neworder`,
+`success`, `failure`, `carousel` (`success` is the Major Order verdict
+overlay; `touchsuccess` is the calibration confirmation). All but the last
 are shot onto a cleared screen; `carousel` advances a page and repaints
 incrementally, which is the path the device actually lives on. Outputs land at
 repo root as `preview_<scene>.png` and are **gitignored there**; the copies a PR
@@ -132,9 +133,22 @@ recent work (branch `touch-onboarding`) was first-run touch setup:
 - **A genuinely fresh unit is prompted to calibrate, once.** `setup()` calls
   `runFirstBootSetupIfDue()` after `maybeRecalibrateTouch()`, so the
   hold-at-power-on path is unchanged and still takes precedence. The prompt is
-  a full-screen card (`HUDRenderer::showTouchPrompt()`, drawn natively from
-  `touch_calibration_reference.jpg`) with a 30 s bounded wait for a contact,
-  then boot carries on regardless — a dead panel cannot hold the device here.
+  a full-screen card (`HUDRenderer::showTouchPrompt()`) with a 30 s bounded
+  wait for a contact, then boot carries on regardless — a dead panel cannot
+  hold the device here.
+- **A calibration that succeeds is confirmed for 3 s**
+  (`HUDRenderer::showTouchSuccess()`), from both routes into one — the
+  first-boot prompt and the hold-at-power-on gesture. `confirmCalibration()`
+  in `main.cpp` is the single place either lands. Success only: a timed-out
+  calibration has nothing to confirm. Fixed wait rather than tap-to-dismiss,
+  because the finger from the fourth corner is usually still down.
+- **Both screens are drawn from `touch_required_reference.jpg` and
+  `touch_success_reference.jpg`** — destroyer bridge, HELLDIVERS II wordmark,
+  one card, hatched footer band; they share `drawCalCard()`/`drawCalCopy()`
+  and differ in accent, chip, icon and copy. The earlier, simpler
+  `touch_calibration_reference.jpg` is superseded. The wordmark is
+  box-filtered down from the 440x172 cut `hud_icons.h` already carries for the
+  boot screen rather than stored a second time.
 - **"Fresh" is narrower than "uncalibrated".** A second NVS key
   (`HD2_PREFS_TOUCH_SETUP_KEY`, `hd2`/`touchSetup`) records that the prompt has
   been shown, and `touch::firstRunSetupDue()` requires no calibration blob, no
@@ -147,8 +161,9 @@ recent work (branch `touch-onboarding`) was first-run touch setup:
   and the sync clock. It is in `_footerSig`, so it clears on the first frame
   after a calibration succeeds. Grey, not amber: amber in that row already
   means the data is stale.
-- **New preview scenes `touchprompt` and `uncalibrated`**, plus card and hint
-  assertions in `tools/check_layout.py`.
+- **New preview scenes `touchprompt`, `touchsuccess` and `uncalibrated`**,
+  plus card, band, chip, medallion and hint assertions in
+  `tools/check_layout.py`.
 - **The card's body copy is the HUD's only mixed-case text**, and so the only
   place drawn `TL_DATUM`. TFT_eSPI centres a free font on its ascent alone, so
   `ML_DATUM` pushes descenders out of the sprite unless the row is made a third

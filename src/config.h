@@ -123,6 +123,13 @@ constexpr uint16_t grey     = rgb565(0x6E, 0x76, 0x80);  // #6E7680 labels
 constexpr uint16_t blue     = rgb565(0x4A, 0x8C, 0xC7);  // #4A8CC7 progress
 constexpr uint16_t red      = rgb565(0xC6, 0x3A, 0x2F);  // #C63A2F enemy
 constexpr uint16_t green    = rgb565(0x5C, 0xA8, 0x60);  // #5CA860 online
+// The calibration-success accent. Not `green`: that one is the link-state dot,
+// a muted sea green picked to sit quietly in a footer, and the reference art's
+// success card is a bright yellow-green that carries a whole screen the way
+// `gold` does. Same three-step family as the gold set — accent, border, hatch.
+constexpr uint16_t lime     = rgb565(0x8C, 0xC6, 0x3F);  // #8CC63F success accent
+constexpr uint16_t limeDim  = rgb565(0x59, 0x7E, 0x28);  // #597E28 borders
+constexpr uint16_t limeMute = rgb565(0x35, 0x4C, 0x18);  // #354C18 hazard hatch
 
 // Major Order header bar. The bar's own fill is the artwork in
 // hud_header_art.h; these are the two things drawn over it.
@@ -140,6 +147,21 @@ constexpr uint16_t cardEdge = rgb565(0x2C, 0x32, 0x3C);  // #2C323C panel hairli
 constexpr uint16_t hatch    = rgb565(0x1A, 0x20, 0x28);  // #1A2028 scene-panel weave
 constexpr uint16_t alarm    = rgb565(0x2E, 0x0E, 0x14);  // #2E0E14 alert ribbon fill
 constexpr uint16_t flagInk  = rgb565(0x14, 0x10, 0x06);  // #141006 text on the gold flag
+
+// --- Destroyer bridge ------------------------------------------------------
+// The backdrop the two calibration screens are set against: in the reference
+// art it is a photograph of a ship's bridge with a planet filling the viewport
+// behind the title. Reproduced as five flat tones rather than a photograph --
+// see the note over the cal* constants below for what that does and does not
+// get you. Every one of them is a near-black, deliberately: this is scenery
+// behind a card, and anything with real contrast in it would compete with the
+// card for a panel that only has 480x320 to give.
+constexpr uint16_t voidBlue = rgb565(0x08, 0x0C, 0x14);  // #080C14 space
+constexpr uint16_t discFill = rgb565(0x10, 0x18, 0x26);  // #101826 the planet
+constexpr uint16_t discRim  = rgb565(0x2A, 0x42, 0x5E);  // #2A425E its lit limb
+constexpr uint16_t hull     = rgb565(0x0D, 0x11, 0x18);  // #0D1118 ship structure
+constexpr uint16_t hullEdge = rgb565(0x1C, 0x24, 0x30);  // #1C2430 its lit edges
+constexpr uint16_t diverInk = rgb565(0x1C, 0x23, 0x2E);  // #1C232E the silhouette
 }  // namespace theme
 
 // --------------------------------------------------------------------------
@@ -358,33 +380,69 @@ constexpr int16_t syncBoxW = 96;    // fixed, so a shrinking string leaves no ta
 // both of that block's terms (the medal icon and the reward box) live there.
 
 // --------------------------------------------------------------------------
-//  First-boot touch calibration prompt
+//  The two touch calibration screens
 //
-//  A gold-bordered warning card, traced from touch_calibration_reference.jpg
-//  at this panel's own 480x320 rather than scaled from it: header band with a
-//  warning badge and a rule under it, a reticle icon beside four lines of
-//  body copy, and a hazard-stripe bar along the bottom. The reference's
-//  photographic background and the HELLDIVERS II wordmark are deliberately
-//  absent -- they are the game's artwork, not this project's, and the HUD's
-//  own plain background is what the rest of the screens use anyway.
+//  Traced from touch_required_reference.jpg and touch_success_reference.jpg at
+//  this panel's own 480x320 rather than scaled from them. Both are the same
+//  screen -- destroyer bridge behind a centred HELLDIVERS II wordmark, one
+//  card below it, a hatched band along the card's bottom edge -- and differ
+//  only in the card's accent colour, its chip, its icon and its copy. So
+//  everything here is shared by both, and hud_renderer.cpp branches on an
+//  accent colour rather than carrying two layouts.
 //
-//  The card keeps the reference's band proportions (21% header, 61% body, 16%
-//  hazard bar) so it reads as the same object at a fifth of the pixels.
+//  Neither screen draws the HUD frame or the SUPER EARTH strip. The reference
+//  has neither: the card floats on the bridge. That is also what drawOverlay()
+//  already does for the two event screens, so a full-bleed status screen is not
+//  a new idea here.
+//
+//  Where the two do not match the reference, and why:
+//
+//   * The card is 92% of the screen's width where the reference's is 60%. The
+//     body copy is set at 9pt, which is the floor on this panel, and the
+//     widest line of it is 303px. Add the reticle, the gaps and the padding
+//     and the card cannot be narrower than about 430 without the copy
+//     rewrapping to six lines, which the body band has no room for. Everything
+//     that costs is horizontal: the reference's diver stands in the margin
+//     this does not have.
+//   * The wordmark is 35% of the width where the reference's is 24%, i.e. it
+//     is scaled up by half again. Strictly proportional would be 113px of
+//     "HELLDIVERS", which is ten letters in ten pixels of cap height.
+//
+//  Vertically the proportions do survive: the free space above and below the
+//  card splits 64:36, against the reference's 63:37.
 // --------------------------------------------------------------------------
+// The wordmark, centred over the card. Not a new bitmap -- hud_icons.h already
+// carries this mark at 440x172 for the boot screen, and drawWordmark() box-
+// filters that cut down to this box. See the note there.
+constexpr int16_t calLogoW = 168, calLogoH = 66;
+constexpr int16_t calLogoX = (screenW - calLogoW) / 2;  // 156
+constexpr int16_t calLogoY = 9;
+// The planet in the viewport, behind the wordmark. Sized and placed off the
+// reference: its lit limb breaks the top of the screen at y=20 and its
+// diameter is 42% of the screen's width. Most of it is behind the card, which
+// is also true of the reference.
+constexpr int16_t calDiscX = screenW / 2, calDiscY = 121, calDiscR = 101;
+// The diver. In the reference this is a full figure filling the left fifth of
+// the frame; there is no left fifth here (see above), so what is left is a
+// helmet and a shoulder in the band beside the wordmark.
+constexpr int16_t calDiverX = 14, calDiverY = 26;
+constexpr int16_t calDiverW = 48, calDiverH = 58;
+
 constexpr int16_t calCardX = padX;      // 20
 constexpr int16_t calCardW = contentW;  // 440
-constexpr int16_t calCardY = 52;        // clear of the SUPER EARTH strip's rule
-constexpr int16_t calCardH = 204;       // 2.16:1, the reference's own aspect
-constexpr int16_t calHeadH = 44;        // header band, to the rule under it
-constexpr int16_t calStripeH = 33;      // hazard bar, below its own rule
-// Warning badge: a gold tab with a dark triangle in it, at the left of the
-// header. The trailing edge slants outward on the way down -- the tab is wider
-// at the bottom than the top -- which is the reference's, and is what stops it
-// reading as a plain rectangle at this size.
-constexpr int16_t calBadgeInset = 10, calBadgeW = 40, calBadgeH = 30;
+constexpr int16_t calCardY = 84;
+constexpr int16_t calCardH = 190;
+constexpr int16_t calHeadH = 40;        // header band, to the rule under it
+constexpr int16_t calStripeH = 30;      // hatched band, below its own rule
+// Header chip: an accent tab with the state's mark knocked out of it, at the
+// left of the header. The trailing edge slants outward on the way down -- the
+// tab is wider at the bottom than the top -- which is the reference's, and is
+// what stops it reading as a plain rectangle at this size. Both screens use
+// it: a warning triangle on one, a check in a disc on the other.
+constexpr int16_t calBadgeInset = 10, calBadgeW = 40, calBadgeH = 28;
 constexpr int16_t calBadgeSlant = 8;
-constexpr int16_t calTitleGap = 16;     // badge -> "TOUCH CALIBRATION REQUIRED"
-// Body: the reticle on the left, the copy on the right.
+constexpr int16_t calTitleGap = 16;     // chip -> "TOUCH CALIBRATION ..."
+// Body: the icon on the left, the copy on the right.
 constexpr int16_t calIconInset = 14, calIconS = 92;
 constexpr int16_t calTextGap = 16;      // icon box -> text column
 constexpr int16_t calTextPadR = 10;     // text column -> the card's border
@@ -399,17 +457,25 @@ constexpr int16_t calTextPadR = 10;     // text column -> the card's border
 // row carrying a 'y' needs 25px to avoid clipping the tail. Top-datum puts the
 // baseline a fixed 13px down and needs 19. Four of these fit the band; four of
 // those would not.
-constexpr int16_t calAddrDy = 8, calAddrH = 20;   // "Helldiver,"
+constexpr int16_t calAddrDy = 8, calAddrH = 20;   // "Helldiver," / the headline
 constexpr int16_t calCopyDy = 30;                 // first body line
 constexpr int16_t calLineH = 20;                  // 19px of need + 1 of slack
 constexpr int16_t calParaGap = 6;
-// Hazard stripes: pitch along the x axis, drawn at 45 degrees.
-constexpr int16_t calStripePitch = 14, calStripeInk = 7;
-// "TOUCH ANYWHERE TO BEGIN", vertically centred on exactly the row the
-// overlays put their dismiss line on, so the two screens that take the whole
-// panel agree about where the line telling you what to do with it lives. Spelt
-// out the same way drawOverlay() spells it rather than as a bare 290, so the
-// two cannot drift apart silently.
-constexpr int16_t calCtaY = screenH - frameY - 22;
-constexpr int16_t calCtaH = 20;
+// Hazard hatch: pitch along the x axis, drawn at 45 degrees.
+//
+// Thin, and in the dim member of the accent's family rather than the bright
+// one. The earlier card had this at 7px of ink on a 14px pitch, which is a
+// road-works barrier; the reference's band is a fine hatch you read as texture
+// and not as a second headline.
+constexpr int16_t calStripePitch = 10, calStripeInk = 2;
+// The line the band carries, centred, on a plate cut out of the hatch. The
+// reference puts FOR SUPER EARTH! here on the success screen and leaves the
+// band empty on the other -- but the prompt has to say what to do with itself
+// somewhere, and this band is the one place on the screen that is neither the
+// card's message nor the bridge behind it.
+constexpr int16_t calBandTextW = 300, calBandTextH = 20;
+constexpr int16_t calBandTextX = calCardX + (calCardW - calBandTextW) / 2;  // 90
+// The wing marks flanking that line on the success screen: three stacked bars,
+// tapering away from the text, mirrored either side of it.
+constexpr int16_t calMarkW = 22, calMarkGap = 14;
 }  // namespace layout

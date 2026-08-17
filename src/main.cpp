@@ -292,6 +292,34 @@ static touch::Gesture waitWithTouch(uint32_t ms) {
   return touch::kNone;
 }
 
+// What both routes into a calibration do when one comes back.
+//
+// The confirmation is shown on success only. A calibration that timed out
+// against a panel that stopped responding has nothing to congratulate, and the
+// unit is about to come up on its built-in guess with the footer hint offering
+// another go -- which is the honest outcome and the one the screen would be
+// lying about.
+//
+// A fixed wait rather than a tap to dismiss, even though the panel has by
+// definition just proved it can be tapped: calibrate() ends by having asked
+// for a fourth corner, and the finger that gave it is very often still down
+// when it returns. A screen dismissible by a contact that predates it is a
+// screen nobody ever sees. Three seconds reads two lines without holding up a
+// boot nobody is standing in front of.
+//
+// invalidate() happens either way: calibrate() paints its own four-corner
+// chrome directly onto the panel, so whatever the HUD thinks is on screen is
+// wrong by the time it returns, with or without a confirmation over the top.
+static void confirmCalibration(bool ok) {
+  constexpr uint32_t kSuccessMs = 3000;
+  if (ok) {
+    Serial.println(F("[touch] calibration stored"));
+    hud.showTouchSuccess();
+    delay(kSuccessMs);
+  }
+  hud.invalidate();
+}
+
 // Hold a finger on the panel through power-on to recalibrate it.
 //
 // Calibration is never run unprompted, not even when none is stored. A desk
@@ -328,8 +356,7 @@ static void maybeRecalibrateTouch() {
   // not reading at all then the four-corner routine is about to sit there
   // doing nothing, and these numbers are what say why.
   touch::dumpDiagnostics(5000);
-  touch::calibrate();
-  hud.invalidate();
+  confirmCalibration(touch::calibrate());
 }
 
 // The one exception to "calibration is never run unprompted": a unit fresh out
@@ -395,8 +422,7 @@ static void runFirstBootSetupIfDue() {
   // from the tap that got us here would be read as that corner's first sample.
   while (touch::pressed()) delay(10);
 
-  touch::calibrate();
-  hud.invalidate();
+  confirmCalibration(touch::calibrate());
 }
 
 // ---------------------------------------------------------------------------

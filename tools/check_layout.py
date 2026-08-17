@@ -411,12 +411,39 @@ for n in sorted(set(FACTION_ICON.values())):
     check(f'badge icon "{n}" height', ICONS[n][1], badgeH - 2)
 check("badge height in the target row", badgeH, targetH)
 
-# --- first-boot touch calibration prompt ------------------------------------
+# --- the two touch calibration screens --------------------------------------
 #
-# The one screen on the HUD set in mixed case, which makes it the one screen
-# whose rows have to reserve descender space -- and the reason the checks below
-# measure the real strings rather than the CAPS alphabet everything else uses.
-print("\n=== first-boot calibration card: bands ===")
+# One card geometry, two colourways: showTouchPrompt() and showTouchSuccess()
+# draw the same bands, the same chip, the same icon box and the same five copy
+# rows, and differ only in accent, chip mark, icon and strings. So everything
+# below is checked once against the geometry and twice against the strings.
+#
+# These are also the only screens on the HUD set in mixed case, which makes
+# them the only ones whose rows have to reserve descender space -- and the
+# reason the checks measure the real strings rather than the CAPS alphabet
+# everything else uses.
+#
+# Neither screen draws the HUD frame or the SUPER EARTH strip (the card floats
+# on the bridge, as in the reference art), so there is deliberately nothing
+# here checking the card against rule1Y or frameY. What bounds it instead is
+# the wordmark above and the panel's own bottom edge.
+print("\n=== calibration screens: the bridge behind the card ===")
+check("wordmark centred", calLogoX, (screenW - calLogoW) // 2)
+check("wordmark box clears the card", calLogoY + calLogoH, calCardY)
+# The diver overlaps the card's x range and is meant to -- it stands above it,
+# not beside it, because there is no margin beside it to stand in. So what has
+# to hold is that it stops at the card's top edge, and that it stays out of the
+# wordmark's box on its way there.
+check("diver box stops at the card's top edge", calDiverY + calDiverH, calCardY)
+check("diver box clear of the wordmark", calDiverX + calDiverW, calLogoX)
+# drawBridge() keeps its ceiling beam above y=10 precisely so bridgeAt() -- the
+# only thing that knows what is behind the wordmark's anti-aliased edges -- can
+# answer with space and the planet alone. If the mark ever starts above that,
+# its top row blends against a background that is not there.
+check("wordmark starts below the ceiling beam", 9, calLogoY)
+check("planet's lit limb reaches the top of the panel", calDiscR, calDiscY)
+
+print("\n=== calibration card: bands ===")
 calHeadRuleY = calCardY + calHeadH
 calBodyY = calHeadRuleY + 1
 calStripeY = calCardY + calCardH - calStripeH
@@ -426,12 +453,9 @@ grid("calibration card bands", [("head", calCardY + 1, calHeadH - 1),
                                 ("stripeRule", calStripeY - 1, 1),
                                 ("stripes", calStripeY, calStripeH - 1)],
      calCardY, calCardY + calCardH - 1)
-check("card clears the SUPER EARTH rule", rule1Y + 1, calCardY)
-check("card bottom clears the CTA line", calCardY + calCardH,
-      calCtaY - calCtaH // 2)
-check("CTA line inside the frame", calCtaY + calCtaH // 2, frameY + frameH - 1)
+check("card bottom inside the panel", calCardY + calCardH, screenH)
 
-print("=== first-boot calibration card: body rows ===")
+print("=== calibration card: body rows ===")
 calBodyH = calStripeY - 1 - calBodyY
 calTextX = calCardX + calIconInset + calIconS + calTextGap
 calTextW = calCardX + calCardW - calTextPadR - calTextX
@@ -466,27 +490,72 @@ def tl_need(font, s):
     return ab + bot
 
 
-print("=== first-boot calibration card: strings ===")
-CAL_COPY = ["This terminal's touch interface is", "not yet calibrated.",
-            "Run a calibration to ensure accurate",
-            "targeting and stratagem deployment."]
-check('"Helldiver," @9pt bold', w(LABEL, "Helldiver,"), calTextW)
-check('"Helldiver," row height', tl_need(LABEL, "Helldiver,"), calAddrH)
-for s in CAL_COPY:
-    check(f'"{s[:34]}" @9pt', w(BODY, s), calTextW)
-    check(f'"{s[:26]}" row height', tl_need(BODY, s), calLineH)
-# The header title sits between the badge and the card's right padding. At
-# FONT_VALUE it is 394px and does not fit; label weight is what makes it.
+print("=== calibration card: strings, both screens ===")
+# The salutation row and the four copy rows, for each screen in turn. Every
+# string here is one the firmware can actually draw -- showTouchPrompt() and
+# showTouchSuccess() in hud_renderer.cpp -- and they are checked as a pair
+# because the two share drawCalCopy() and so share every box.
+CAL_SCREENS = [
+    ("required", "Helldiver,",
+     ["This terminal's touch interface is", "not yet calibrated.",
+      "Run a calibration to ensure accurate",
+      "targeting and stratagem deployment."]),
+    ("successful", "Calibration Complete!",
+     ["Your touchscreen has been calibrated", "successfully.",
+      "Super Earth thanks you for your", "commitment to victory."]),
+]
+for screen, head, copy in CAL_SCREENS:
+    check(f'[{screen}] "{head}" @9pt bold', w(LABEL, head), calTextW)
+    check(f'[{screen}] "{head}" row height', tl_need(LABEL, head), calAddrH)
+    for s in copy:
+        check(f'[{screen}] "{s[:30]}" @9pt', w(BODY, s), calTextW)
+        check(f'[{screen}] "{s[:22]}" row height', tl_need(BODY, s), calLineH)
+
+# The header title sits between the chip and the card's right padding. At
+# FONT_VALUE the shorter of the two is 394px and does not fit; label weight is
+# what makes them. The success screen's is the longer of the pair and so is the
+# one that actually sets the floor on the card's width.
 calTitleX = calCardX + calBadgeInset + calBadgeW + calTitleGap
-check('"TOUCH CALIBRATION REQUIRED" @9pt bold', w(LABEL, "TOUCH CALIBRATION REQUIRED"),
-      calCardX + calCardW - calTextPadR - calTitleX)
-check('"TOUCH ANYWHERE TO BEGIN" @9pt bold', w(LABEL, "TOUCH ANYWHERE TO BEGIN"),
-      contentW)
-# The triangle is knocked out of the tab's rectangular part, clear of the
-# slanted trailing edge -- see the badge block in showTouchPrompt().
+calTitleW = calCardX + calCardW - calTextPadR - calTitleX
+CAL_TITLES = ["TOUCH CALIBRATION REQUIRED", "TOUCH CALIBRATION SUCCESSFUL"]
+for s in CAL_TITLES:
+    check(f'"{s}" @9pt bold', w(LABEL, s), calTitleW)
+
+# The hatched band's text plate, and the two lines that sit on it.
+print("=== calibration card: the hatched band ===")
+check("band text plate inside the card", calBandTextX + calBandTextW,
+      calCardX + calCardW - 1)
+check("band text plate starts inside the card", calCardX + 1, calBandTextX)
+check("band text row inside the band", calBandTextH, calStripeH - 1)
+CAL_BAND = ["TOUCH ANYWHERE TO BEGIN", "FOR SUPER EARTH!"]
+for s in CAL_BAND:
+    check(f'"{s}" @9pt bold', w(LABEL, s), calBandTextW)
+# The success screen's wing flashes are measured off "FOR SUPER EARTH!" at
+# render time and hang outside it, so the thing that can collide is the card's
+# own border rather than the plate -- the plate is wider than the text.
+calWingOuter = (calBandTextW // 2 + w(LABEL, "FOR SUPER EARTH!") // 2
+                + calMarkGap + calMarkW)
+check("band wing flashes inside the card", calBandTextX + calWingOuter,
+      calCardX + calCardW - 1)
+
+# The chip's mark is knocked out of the tab's rectangular part, clear of the
+# slanted trailing edge -- see the chip block in drawCalCard().
+print("=== calibration card: the header chip ===")
 check("warning triangle width inside the tab", 23, calBadgeW - calBadgeSlant)
 check("warning triangle height inside the tab", calBadgeH - 10, calBadgeH)
-check("badge inside the header band", calBadgeH, calHeadH - 1)
+check("check disc width inside the tab", 21, calBadgeW - calBadgeSlant)
+check("check disc height inside the tab", 21, calBadgeH)
+check("chip inside the header band", calBadgeH, calHeadH - 1)
+
+# The medallion, against the box drawCalMedallion() is handed. Unlike the
+# reticle -- which is built from the box it is given and cannot outgrow it --
+# the medallion is drawn from fixed offsets off the box's top and centre, so
+# shrinking calIconS would silently push its rank row out of the card. Its
+# crest starts 13px down and its stars are centred at 82 with r=4, so it needs
+# 87 of the 92; the wreath is the wider of the two constraints at 2*(19+11).
+print("=== calibration card: the body icons ===")
+check("medallion crest-to-stars inside its box", 82 + 4 + 1, calIconS)
+check("medallion wreath inside its box", 2 * (19 + 11), calIconS)
 
 # --- the uncalibrated hint, in the footer's middle gap -----------------------
 #
