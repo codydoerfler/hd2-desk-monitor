@@ -16,7 +16,9 @@ It also speaks. A new Major Order, or a firmware update landing overnight,
 plays a short clip through the board's speaker — see [Audio](#audio).
 
 It announces the big moments full-screen: a new Major Order arriving, and the
-verdict when one ends — see [Event screens](#event-screens).
+verdict when one ends. A boot does too, for whichever order is live right then,
+so a board coming back from a power cut says what the war is about before it
+says anything else — see [Event screens](#event-screens).
 
 Swipe the panel to page through the cards by hand; otherwise it cycles on its
 own. Plug it in, join it to WiFi once, and it runs. It updates its own firmware
@@ -272,11 +274,11 @@ The device plays a clip on the things worth looking up for:
 
 | Trigger | Clip | When |
 |---|---|---|
-| A new Major Order | `mo_new.wav`, else compiled-in | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
+| A new Major Order | `mo_new.wav`, else compiled-in | The assignment id changes between polls, **or** the board has just booted and is announcing whichever order is live — see [Event screens](#event-screens). Mid-run, the id check is gated on having polled before, so an outage that costs one poll cannot replay the order that was already running. |
 | A Major Order succeeded | `mo_success.wav`, else compiled-in | The order left the feed with every task complete — see [Event screens](#event-screens). |
 | A Major Order failed | `mo_failure.wav`, else compiled-in | The order left the feed incomplete, or its deadline passed with tasks outstanding. |
 | The board updated itself | compiled-in | The running `HD2_FW_VERSION` differs from the one the last boot recorded in NVS (`hd2` / `fwVer`). An OTA reboots into the new image, so the *next* boot is the only moment this is detectable. A first-ever boot has nothing stored and stays silent. |
-| Power-up | two-tone chime | Every boot. Deliberately not the alert clip: a power-cycle is the one event where nothing has happened, and spending a multi-second alert on it would wear out the alert's meaning. |
+| Power-up | `mo_new.wav`, else compiled-in | Every boot, once the panel is lit, as confirmation that power reached the board — the one thing a unit can say before it has a network. Since a boot now also announces the live order a poll later, a power-on with WiFi up plays this clip twice: once here, once behind the announcement. |
 
 The compiled-in clip is 8-bit unsigned PCM at 8 kHz mono, stored in `PROGMEM` as
 `src/hud_audio_clip.h` and played by `audio::playPcm8()`. 8 kHz is telephone
@@ -662,7 +664,7 @@ are acknowledged, and are the only screens on the device with no chrome.
 
 | | |
 |---|---|
-| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and as much of High Command's briefing as fits in four lines. Raised when the assignment id changes, on the same gate as the new-order alert, so a reboot does not re-announce an order that was already running. Dismissing it hands back to the carousel on that order's *first* objective. |
+| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and as much of High Command's briefing as fits in four lines. Raised when the assignment id changes, and also once per boot for whichever order is already live (see below). Dismissing it hands back to the carousel on that order's *first* objective. |
 | ![success](docs/preview_success.png) | **ORDER COMPLETE** — every task was done at the last observation. The green band is the whole design: from across a room the colour has already said it before any of the words have. |
 | ![failure](docs/preview_failure.png) | **ORDER FAILED** — the order ended incomplete, or its deadline passed with tasks outstanding. The objective count is here because "3 of 4 objectives met" is a materially different evening from "0 of 4". |
 
@@ -684,6 +686,32 @@ An outcome is announced once (`verdictAnnouncedFor`). Without that, an expired
 order sitting on the feed would re-fire every poll, and a device left alone
 overnight would come back to a panel that had been shouting at an empty room
 since 2 am.
+
+**A boot announces the live order.** Power-on, power restore and the reboot an
+OTA lands on all put the current Major Order on the panel, on the same screen a
+brand new one gets. A board coming back up otherwise joined the war silently
+and left you to work out what it was fighting for from a progress bar.
+
+That cannot reuse the id check: after a reboot there is no previous order in
+RAM for the id to have changed *from*, which is exactly the case that check
+suppresses. So it is a separate trigger — `announceOnNextPoll` in
+`src/main.cpp`, armed in `setup()` and spent by the first poll that has an
+order to show — ending at the same `queueOverlay(kOverlayNewOrder, ...)` call.
+Three things follow from that shape:
+
+- **Once per boot, not once per poll.** The flag is cleared the first time it
+  raises anything, so the five-minute poll after it is quiet.
+- **A boot into a quiet galaxy stays armed.** If the feed has no order yet the
+  flag is not spent on nothing; the announcement lands on the poll where High
+  Command issues one.
+- **The id check is untouched.** Mid-run detection still fires on a genuine
+  rotation and is still gated on having polled before, so a reconnect after an
+  outage does not re-announce the order that was already running.
+
+Power-on and a post-update boot behave identically — the version NVS already
+keeps for the update alert (`hd2` / `fwVer`) only picks the word the serial log
+prints, `power-on` / `post-update boot` / `first boot`, so a unit on a desk can
+be asked afterwards why its screen was showing an order.
 
 **Dismissing.** A tap is the intended gesture; any swipe works too, since a
 screen that has taken over the panel refusing a gesture just reads as broken.
