@@ -150,7 +150,46 @@ class HUDRenderer {
   // one that has ended. Takes the whole panel — no frame chrome, no carousel,
   // no clocks — because it is meant to interrupt, and stays up until it is
   // dismissed. See HudModel::overlay.
+  //
+  // All three are one composition, drawn from mo_new_reference.jpg and
+  // mo_verdict_reference.jpg: a dark text panel down the left with an angled
+  // right edge, the flag photograph filling the right of the screen, an accent
+  // hairline on the divider between them. They differ in colour family, badge,
+  // copy, and how the one stored art plate is graded. See the ovl* constants
+  // in config.h for the geometry and what does and does not match.
   void drawOverlay(const HudModel &m, time_t nowUtc);
+  // x of the panel's angled right edge at row `y`, and the right edge of the
+  // text column there — the latter is what every row of type has to wrap to,
+  // since the column is a trapezoid and narrows on the way down.
+  static int16_t overlayEdgeX(int16_t y);
+  static int16_t overlayTextR(int16_t y);
+  // The photographic plate down the right: hud_mo_art.h scaled 2x through the
+  // same srcCoord()/lerp565() pair drawBiome() uses, and re-graded per screen
+  // on the way past. There is one plate for three screens because three would
+  // not fit the app slot — tools/gen_mo_art.py has that arithmetic. `kind`
+  // picks the grade: the announcement is the plate as stored, a success is
+  // exposed up, a failure is desaturated toward a warm grey with an ember
+  // glow off the skyline.
+  void drawOverlayArt(OverlayKind kind);
+  // Shreds bitten out of the flag's fly edge, slits through its body, and
+  // tatters hanging off its hem — the failure reference's flag is in rags and
+  // a grade alone cannot tear cloth. Failure only, over the graded plate.
+  void drawFlagTears();
+  // The text panel, its angled right edge, the accent hairline riding that
+  // edge, and the border around the whole screen.
+  void drawOverlayPanel(uint16_t accent, uint16_t dim);
+  // The header row every overlay shares: badge at the left margin, the title
+  // beside it in Anton, and a rule under both ending in the reference's
+  // angled tail.
+  void drawOverlayHeader(OverlayKind kind, uint16_t accent, const String &title);
+  // One of the announcement's section rules — a centred ALL-CAPS word with a
+  // wing mark either side of it, e.g. "= OBJECTIVE =".
+  void drawOverlayDivider(int16_t y, const String &label, uint16_t accent);
+  // Three stacked bars tapering away from the text they flank. `len` is the
+  // middle bar; the outer two step shorter. `dir` is +1 for a mark to the
+  // right of `x`, -1 for one to its left. The same motif the calibration
+  // card's band already carries, and the references repeat it on every rule.
+  void drawWingBars(int16_t x, int16_t y, int16_t len, int8_t dir, uint16_t c);
   // Greedy word wrap in the current font. Fills up to `maxLines` entries of
   // `out` and returns how many were used; ellipses the last line if the text
   // did not fit. Only the overlay needs this — every other screen is built
