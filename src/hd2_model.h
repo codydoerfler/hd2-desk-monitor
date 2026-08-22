@@ -88,13 +88,15 @@ struct PlanetEvent {
 // Positionally coupled to biomes::table -- the value IS the table index, so
 // this list and the table's order must be edited together. The table is
 // generated from the slugs in tools/assets/biomes sorted by name, minus the
-// UNREACHABLE set in tools/gen_biomes.py, which is why eight plates the art
+// UNREACHABLE set in tools/gen_biomes.py, which is why nine plates the art
 // set ships (the extra black holes and glaciers, the two tutorial biomes) have
 // no enumerator here: nothing below ever returned them, so they were costing a
-// flash slot 19,360 B apiece to never be drawn.
+// flash slot 19,360 B apiece to never be drawn. kBiomeCyberstan is the one
+// exception kept on purpose -- nothing returns it either, but it is a real
+// planet the live war could start naming, so the plate is held as a hedge.
 enum : int8_t {
-  kBiomeBlackhole3 = 0, kBiomeBlackholeBase, kBiomeBugHive, kBiomeConiferous,
-  kBiomeCyberstan, kBiomeDeciduousAutumn, kBiomeDeciduous, kBiomeGlacier,
+  kBiomeBlackholeBase = 0, kBiomeBugHive, kBiomeConiferous, kBiomeCyberstan,
+  kBiomeDeciduousAutumn, kBiomeDeciduous, kBiomeGlacier,
   kBiomeMagma, kBiomeMoorArid, kBiomeMoor, kBiomeMoorRed, kBiomeMoorTundra,
   kBiomePrimordial, kBiomePrimordialBlue, kBiomePrimordialBug,
   kBiomePrimordialDead, kBiomePrimordialPurple, kBiomeSandyAcid, kBiomeSandy,

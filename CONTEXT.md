@@ -169,9 +169,9 @@ The restyle, second and larger:
   clean curve from (102,185) to (234,217) silhouetted against the horizon,
   with tatters hanging off it in the graded cloth colour.
 - **The cost is 42KB, which took the slot to 98.8%** (2,006,697 of 2,031,616,
-  ~24KB spare) — the end of compiled-in art at the time. Stripping the eight
+  ~24KB spare) — the end of compiled-in art at the time. Stripping the nine
   unreachable biome plates on 2026-08-21 has since bought that back and more:
-  **91.2% (1,851,857), ~175KB spare**. The art is still the expensive thing
+  **90.2% (1,832,485), ~194KB spare**. The art is still the expensive thing
   here; the slack is just no longer measured in single KB.
 - **`tools/check_layout.py` grew an overlay section**, which it had none of
   before — it was passing these screens by not looking at them. It now mirrors
@@ -396,16 +396,18 @@ Before that, a SEAF/skull rebrand:
   PSRAM, headroom is limited).
 - Flash is the constraint to watch: OTA needs two app slots,
   `partitions_hd2.csv` caps the image at 1.9375 MiB, and the build sits at
-  **91.2% (1,851,857 of 2,031,616 bytes, ~175KB spare)**. It was at 98.8%
-  until the eight unreachable biome plates came out (2026-08-21, −154,824 B);
+  **90.2% (1,832,485 of 2,031,616 bytes, ~194KB spare)**. It was at 98.8%
+  until the nine unreachable biome plates came out (2026-08-21, −174,212 B);
   the Major Order overlay art before that had cost 42KB. Compiled-in art is
   what fills this slot, so treat the headroom as a budget rather than as room
   to stop counting. If a change overflows it, the fix is the SD card, or a
   custom partition CSV growing **both** app slots equally — not reverting to
   `huge_app.csv`, which would remove OTA.
 - `src/hud_biomes.h` is generated: edit `tools/gen_biomes.py`, not the header.
-  Its `UNREACHABLE` set holds the eight plates `biomeFromName()` can never
-  return, and the `kBiome*` enum in `hd2_model.h` is **positionally coupled**
+  Its `UNREACHABLE` set holds the nine plates `biomeFromName()` can never
+  return (`cyberstan` is a tenth it can't return either, kept on purpose as a
+  hedge against the live war naming that planet), and the `kBiome*` enum in
+  `hd2_model.h` is **positionally coupled**
   to the generated table — the enumerator's value *is* the table index, so the
   two must be edited together or every planet draws the wrong landscape.
 - Regenerate and visually check `preview_*.png` via `tools/preview.sh` for

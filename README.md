@@ -112,9 +112,9 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 17.3 % (56,732 bytes static)**, **Flash 91.2 %
-(1,851,857 of 2,031,616 bytes)** — 179,759 bytes spare. That figure was 98.8 %
-until eight biome plates that no runtime path could reach came out of
+Resource usage as built: **RAM 17.3 % (56,732 bytes static)**, **Flash 90.2 %
+(1,832,485 of 2,031,616 bytes)** — 199,131 bytes spare. That figure was 98.8 %
+until nine biome plates that no runtime path could reach came out of
 `hud_biomes.h` (19,360 bytes apiece; `biomeFromName()` in `src/hd2_model.h` is
 the only thing that indexes that table and never returned them). Before that,
 42 KB had gone on the Major Order overlay art plate, and

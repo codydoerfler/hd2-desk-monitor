@@ -33,15 +33,21 @@ DIM = 0.55
 
 # Plates no runtime path can reach. biomeFromName() in src/hd2_model.h is the
 # only thing that indexes the table, and it never returns these -- the API
-# names them nothing it matches (the three extra black holes and the three
+# names them nothing it matches (the four extra black holes and the three
 # extra glaciers each collapse onto their _base plate, and the two tutorial
-# biomes are not in the live war). Each one is 19,360 B of a flash slot that
-# has ~25 KB spare, so they are skipped rather than shipped. The source .webp
-# files stay in tools/assets/biomes -- if the API ever starts naming one of
-# these, add the match to biomeFromName() and drop the slug from here.
+# biomes are not in the live war). Each one is 19,360 B, so they are skipped
+# rather than shipped. The source .webp files stay in tools/assets/biomes --
+# if the API ever starts naming one of these, add the match to biomeFromName()
+# and drop the slug from here.
+#
+# cyberstan is dead by the same test -- biomeFromName() has no branch for it --
+# but it is kept deliberately. Unlike a tutorial biome it is a real planet the
+# live war could start reporting, so the plate is held as a hedge and the match
+# would be one line in biomeFromName().
 UNREACHABLE = {
     "blackhole1",
     "blackhole2",
+    "blackhole3",
     "blackhole_conventional",
     "glacier_bot",
     "glacier_coldrocky",
