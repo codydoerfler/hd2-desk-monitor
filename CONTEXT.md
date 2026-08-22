@@ -20,9 +20,11 @@ over. Pages advance on a 7s timer, or on a swipe (which restarts the timer).
 
 Two events take the whole panel: a new Major Order arriving, and the verdict
 when one ends. They interrupt the carousel and stay up until tapped, with a
-one-poll-interval timeout so a dead panel cannot strand the HUD on them. It
-also drives the board's speaker on all three of those events and after an OTA
-update, from SD-card clips where a card is present.
+one-poll-interval timeout so a dead panel cannot strand the HUD on them. A
+boot — power-on, power restore, or the reboot after an OTA — also raises the
+new-order screen once, for whichever order is already live. It drives the
+board's speaker on all of those events and after an OTA update, from SD-card
+clips where a card is present.
 
 ## Where it lives
 
@@ -75,6 +77,10 @@ update, from SD-card clips where a card is present.
   caller — see the file's header comment for why.
 - `src/hud_biomes.h` — generated biome backdrop strips for the campaign
   screen, one per planet terrain type.
+- `src/hud_mo_art.h` — the Major Order overlay art plate: the flag and the
+  orbital city, RGB565, 120x160 stored and drawn at 2x. 38.4KB, the single
+  largest asset in the image. One plate serves all three overlays; the
+  renderer grades it per screen (`ArtGrade` in `hud_renderer.cpp`).
 - `src/hud_header_art.h` — the Earth/gold-sweep wash that backed the old
   objective bar. **No longer referenced**: the card redesign dropped the bar,
   and with it ~12.7KB of PROGMEM. The file and tools/gen_header_art.py are
@@ -118,6 +124,10 @@ Icon/art generator scripts (Python, in `tools/`):
   than redrawn).
 - `tools/gen_biomes.py` — generates `src/hud_biomes.h`, the campaign-screen
   terrain backdrops, from `tools/assets/biomes/*.webp`.
+- `tools/gen_mo_art.py` — generates `src/hud_mo_art.h` from
+  `mo_new_reference.jpg` at the repo root. The crop and the half-size storage
+  are both deliberate; the docstring carries the arithmetic for why three
+  plates (or one full-size one) do not fit the app slot.
 - `tools/gen_anton_font.py` — generates the Anton display font table.
 - `tools/gen_audio_clip.py` — generates `src/hud_audio_clip.h` from
   tools/assets/hellpods_source.mp3 via macOS `afconvert`. `--preview` dumps an
@@ -128,7 +138,83 @@ Icon/art generator scripts (Python, in `tools/`):
 ## Current state (as of last commit, see `git log`)
 
 Run `git log --oneline -10` for the authoritative recent history. The most
-recent work (branch `touch-onboarding`) was first-run touch setup:
+recent work (branch `mo-boot-overlay`) is two passes: when the new-order
+screen appears, and then what all three overlays look like.
+
+The restyle, second and larger:
+
+- **All three overlays are drawn from `mo_new_reference.jpg` and
+  `mo_verdict_reference.jpg`** — left text panel, angled divider, photographic
+  flag-and-skyline on the right, per-screen accent (gold / sage / brick). The
+  data plumbing is unchanged: same title, same wrapped briefing, same
+  objectives-met count and reward, same touch-to-dismiss and same fallback
+  timeout. Presentation only.
+- **The art is a real photograph, and that was the whole question.** Cody's
+  instruction was "as close as possible to these images", explicitly a higher
+  bar than the touch-screen pass that flattened its reference to vectors. It
+  fits at exactly one plate: 240x320x2 = 153,600 B against 66,939 B free,
+  two half-res plates 76,800 B, one half-res plate 38,400 B. So one plate,
+  graded three ways by `ArtGrade`/`gradePixel()` rather than three assets.
+- **The grades were sampled, not eyeballed.** Reference means against the
+  same regions of this plate: success sky (27,40,78)->(67,85,123), failure
+  flag (38,48,79)->(60,56,58). Two things fell out of that. The failure
+  reference is *not* a red wash — it is a heavy desaturate with a warm bias
+  and the fires doing the colour. And an early "protect the flag's blue from
+  the smoke" idea is unworkable and was dropped: in a blue-night photograph
+  the sky is bluer than the cloth (b-r 60 against 54), so no colour test can
+  separate them — and the reference lets the flag desaturate anyway.
+- **The torn flag is geometry over the top**, measured off the plate rather
+  than guessed. The fly edge runs off the right of the frame, so damage there
+  can only read as notches in the screen border; what reads is the hem, a
+  clean curve from (102,185) to (234,217) silhouetted against the horizon,
+  with tatters hanging off it in the graded cloth colour.
+- **The cost is 42KB and the slot is now at 98.8%** (2,006,697 of 2,031,616,
+  ~24KB spare). Inside the budget, but that is the end of compiled-in art.
+- **`tools/check_layout.py` grew an overlay section**, which it had none of
+  before — it was passing these screens by not looking at them. It now mirrors
+  the trapezoid (`edge_x()`/`text_r()`), so every row is measured against the
+  width available *at its own height*, and it caught three real overruns:
+  "TO BE DETERMINED", "12 OF 12 OBJECTIVES MET" and "1000000 MEDALS AWARDED",
+  now "NOT YET POSTED", "12/12 OBJECTIVES MET" and "+1000000 MEDALS".
+
+The trigger change, first and smaller:
+
+- **A boot announces the live Major Order.** Cody's call, overriding the
+  earlier design: power-on, power restore and the post-OTA reboot all put the
+  current order on the panel using the existing `kOverlayNewOrder` screen,
+  data and clip. Nothing about the trigger logic was touched by the restyle
+  that followed it.
+- **It is a separate trigger, not a loosened gate.** `orderIsNew` still reads
+  `order.valid && model.haveData && order.id != model.order.id`, byte for
+  byte. A reboot has no previous order in RAM for an id to differ from, which
+  is the exact case that gate exists to suppress, so change detection cannot
+  be made to cover this. `announceOnNextPoll` (a `static bool` in `main.cpp`,
+  armed in `setup()`) is the second path; both end at the same
+  `queueOverlay(kOverlayNewOrder, order)`, and the flag is cleared there, so
+  the two firing on one poll is one announcement.
+- **Armed unconditionally on `setup()`, which is enough.** `setup()` runs on a
+  real reset and nothing else here — the firmware's single `ESP.restart()` is
+  the WiFi portal timing out — so power-on and post-OTA are the same event
+  from this code's point of view and need no separate detection. The NVS
+  version compare the update alert already keeps (`hd2`/`fwVer`) was
+  *not* extended into a second gate; it only picks the word the serial log
+  prints (`power-on` / `post-update boot` / `first boot`).
+- **A boot into a quiet galaxy keeps the flag armed** rather than spending it
+  on `order.valid == false`. The job is "announce whatever is live", so the
+  announcement waits for the poll where an order appears.
+- **The two-deep overlay queue still cannot overflow.** A verdict needs a
+  valid `model.order` from an earlier poll, which is precisely the state that
+  has already spent the boot flag — so the worst case is still
+  `[verdict, new order]`. Checked by simulation, not by inspection.
+- **Known consequence, flagged for Cody in the PR and not decided here:**
+  `playBootChime()` already plays the new-order clip (his earlier call), so a
+  power-on with WiFi up now plays that clip twice — once at boot, once behind
+  the announcement a poll later. Left alone because the chime is the only
+  thing a unit can say before it has a network, and dropping it would go
+  silent on exactly the boots that fail to connect.
+
+Before that (branches `touch-onboarding` and `restyle-touch-screens`) was
+first-run touch setup:
 
 - **A genuinely fresh unit is prompted to calibrate, once.** `setup()` calls
   `runFirstBootSetupIfDue()` after `maybeRecalibrateTouch()`, so the
@@ -248,8 +334,10 @@ Before that (v1.1.0) was a card redesign plus audio:
   that attempt was never committed: this file used to say the implementation
   was in git history, and it is not. Don't go looking for it.
 - **Audio** on a new Major Order and after an OTA — see `hud_audio.*` above
-  and the README's Audio section for the trigger rules (both are gated so a
-  reboot doesn't replay them).
+  and the README's Audio section for the trigger rules. The OTA alert is
+  gated on the NVS version compare so a plain reboot doesn't replay it; the
+  new-order alert is no longer suppressed on a boot, see the
+  `mo-boot-overlay` notes at the top of this section.
 
 Before that, a SEAF/skull rebrand:
 - Faction label "Humans" → "SEAF" in all **UI text only**. The underlying
@@ -303,11 +391,13 @@ Before that, a SEAF/skull rebrand:
 - Verify builds with `python3 -m platformio run` before considering a
   change done. Watch RAM/flash usage in the build output (device has no
   PSRAM, headroom is limited).
-- Flash headroom is genuinely tight: OTA needs two app slots, so
-  `min_spiffs.csv` caps the image at 1.875 MiB and the build sits at ~96% of
-  that (~70KB spare). Compiled-in art is what fills it. If a change overflows
-  the slot, the fix is a custom partition CSV growing **both** app slots
-  equally — not reverting to `huge_app.csv`, which would remove OTA.
+- Flash headroom is nearly gone: OTA needs two app slots, `partitions_hd2.csv`
+  caps the image at 1.9375 MiB, and the build now sits at **98.8% (2,006,697
+  of 2,031,616 bytes, ~24KB spare)** — the Major Order overlay art took 42KB
+  of it. Compiled-in art is what fills it, and there is no longer room for
+  another plate. If a change overflows the slot, the fix is the SD card, or a
+  custom partition CSV growing **both** app slots equally — not reverting to
+  `huge_app.csv`, which would remove OTA.
 - Regenerate and visually check `preview_*.png` via `tools/preview.sh` for
   any change touching `hud_renderer.cpp` or the generated art headers, and run
   `python3 tools/check_layout.py`, before saying a visual change is complete.

@@ -229,6 +229,29 @@ static OverlayKind classifyOrderOutcome(const MajorOrder &prev, const MajorOrder
 // shouting at an empty room since 2am.
 static int32_t verdictAnnouncedFor = 0;
 
+// Set at boot, spent by the first poll that has a Major Order to show.
+//
+// The overlay this raises is the same one a genuinely new order raises, and
+// deliberately so: Cody's call is that a power-on -- and the reboot an OTA
+// lands on, which from here is the same event -- puts the live order on the
+// panel rather than coming up mid-war with no idea what the war is.
+//
+// It cannot reuse orderIsNew's change detection to do that. After a reboot
+// there is no "before" in RAM to have changed from, which is precisely the
+// case that gate exists to suppress -- so this is a separate trigger that
+// happens to end at the same queueOverlay(kOverlayNewOrder, ...) call.
+//
+// A boot into a quiet galaxy leaves it armed rather than spending it: the job
+// is "announce whatever order is live", and if none is yet, the moment worth
+// having is the poll where one appears.
+static bool announceOnNextPoll = false;
+
+// Which kind of boot armed it. Purely a word in the serial log -- power-on and
+// post-update behave identically, on purpose -- but that log is the only
+// history a unit on a desk keeps, and "the overlay came up because the board
+// was reflashed" is worth telling apart from "someone kicked the plug out".
+static const char *bootAnnounceReason = "power-on";
+
 static storage::Clip overlayClip(OverlayKind k) {
   switch (k) {
     case kOverlaySuccess: return storage::kClipSuccess;
@@ -644,6 +667,14 @@ static void poll() {
   // and every reboot would announce itself.
   const bool orderIsNew = order.valid && model.haveData && order.id != model.order.id;
 
+  // The other way that same overlay goes up: this board just booted, and the
+  // order already running is news to it even though the id has not changed
+  // from anything. Deliberately a separate condition rather than a loosening
+  // of the gate above -- see announceOnNextPoll -- and it survives a poll that
+  // comes back with no order at all, so a boot into a quiet galaxy announces
+  // the next order to arrive instead of announcing nothing.
+  const bool announceBootOrder = order.valid && announceOnNextPoll;
+
   // How the outgoing order ended, if it did. Gated on haveData for the same
   // reason as orderIsNew: on the first poll after a reboot there is no
   // "before" to compare against, and an empty model.order would otherwise be
@@ -711,9 +742,15 @@ static void poll() {
   // this order, and an alert that finishes while the panel still shows the
   // previous one has told you to look at the wrong thing. loop() raises the
   // overlay and fires its clip once the repaint has landed.
-  if (orderIsNew) {
-    Serial.printf("[order] new Major Order %d — \"%s\"\n", (int)order.id,
-                  order.title.c_str());
+  if (orderIsNew || announceBootOrder) {
+    // Disarmed here rather than where it is read, so that both triggers being
+    // true on one poll is one announcement and not two. That is reachable: a
+    // boot into a quiet galaxy is still armed on the later poll that brings a
+    // genuinely new order in, and by then haveData is set and the id has
+    // changed, so orderIsNew is true as well.
+    announceOnNextPoll = false;
+    Serial.printf("[order] announcing Major Order %d — \"%s\" (%s)\n", (int)order.id,
+                  order.title.c_str(), orderIsNew ? "new order" : bootAnnounceReason);
     queueOverlay(kOverlayNewOrder, order);
   }
 }
@@ -776,8 +813,28 @@ void setup() {
       Serial.printf("[audio] updated %s -> %s\n", ranBefore.c_str(), running.c_str());
       playCompiledAlert();
     }
-    if (ranBefore != running) prefs.putString(HD2_PREFS_FW_KEY, running);
+    if (ranBefore != running) {
+      // Same comparison, second use: it names the reason the announcement
+      // below will log. It decides nothing -- every boot announces either way.
+      bootAnnounceReason = ranBefore.length() ? "post-update boot" : "first boot";
+      prefs.putString(HD2_PREFS_FW_KEY, running);
+    }
   }
+
+  // --- "announce whatever Major Order is live" ------------------------------
+  //
+  // Unconditional, and it does not need to be cleverer than that: setup() runs
+  // on a real reset and nothing else in this firmware (the single ESP.restart()
+  // is the WiFi portal timing out, which is a reboot in every sense that
+  // matters here), so arming on every setup() already covers both the power-on
+  // case and the post-OTA one. The version compare above only labels which it
+  // was; it is not a second gate.
+  //
+  // A flag rather than a call because there is nothing to announce yet: WiFi is
+  // not up, and the overlay has to carry the real order. poll() spends it.
+  announceOnNextPoll = true;
+  Serial.printf("[order] armed: the live Major Order will be announced (%s)\n",
+                bootAnnounceReason);
 
   model.utcOffsetMin =
       (int16_t)prefs.getShort(HD2_PREFS_TZ_KEY, kUtcOffsetMinutesDefault);

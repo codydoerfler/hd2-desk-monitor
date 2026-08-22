@@ -16,7 +16,9 @@ It also speaks. A new Major Order, or a firmware update landing overnight,
 plays a short clip through the board's speaker — see [Audio](#audio).
 
 It announces the big moments full-screen: a new Major Order arriving, and the
-verdict when one ends — see [Event screens](#event-screens).
+verdict when one ends. A boot does too, for whichever order is live right then,
+so a board coming back from a power cut says what the war is about before it
+says anything else — see [Event screens](#event-screens).
 
 Swipe the panel to page through the cards by hand; otherwise it cycles on its
 own. Plug it in, join it to WiFi once, and it runs. It updates its own firmware
@@ -110,8 +112,10 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 17.3 % (56,704 bytes static)**, **Flash 96.1 %
-(1,952,069 of 2,031,616 bytes)**.
+Resource usage as built: **RAM 17.3 % (56,732 bytes static)**, **Flash 98.8 %
+(2,006,697 of 2,031,616 bytes)** — 24,919 bytes spare. The last 42 KB of that
+went on the Major Order overlay art plate; see [Event screens](#event-screens)
+for the arithmetic and what was traded away to make it fit.
 
 That flash figure is high because the partition table splits the 4 MB into
 **two 1.9375 MiB app slots**, which is what [OTA](#firmware-updates) needs: the
@@ -131,11 +135,13 @@ slot.
 > the OTA fails cleanly if an image will not fit — but the headroom below is
 > only real once the unit has been flashed over USB once.
 
-> ⚠️ **Roughly 78 KB of headroom, and assets are what eat it.** The next
-> substantial addition to `hud_biomes.h`, `hud_icons.h` or `hud_audio_clip.h`
-> may not fit; the failure mode is a link error, not something subtle. New art
-> and audio belong on the SD card now. The stock `huge_app.csv` is not an
-> option any more; it has only one app slot and would silently take OTA away.
+> ⚠️ **Under 25 KB of headroom left, and assets are what ate it.** That is
+> about one more icon table, and nothing like another photograph. The next
+> substantial addition to `hud_biomes.h`, `hud_icons.h`, `hud_mo_art.h` or
+> `hud_audio_clip.h` will not fit; the failure mode is a link error, not
+> something subtle. New art and audio belong on the SD card now. The stock
+> `huge_app.csv` is not an option any more; it has only one app slot and would
+> silently take OTA away.
 
 ---
 
@@ -272,11 +278,11 @@ The device plays a clip on the things worth looking up for:
 
 | Trigger | Clip | When |
 |---|---|---|
-| A new Major Order | `mo_new.wav`, else compiled-in | The assignment id changes between polls. Gated on having polled before, so the order already running when the board boots is not announced — otherwise every reboot and every outage would replay it. |
+| A new Major Order | `mo_new.wav`, else compiled-in | The assignment id changes between polls, **or** the board has just booted and is announcing whichever order is live — see [Event screens](#event-screens). Mid-run, the id check is gated on having polled before, so an outage that costs one poll cannot replay the order that was already running. |
 | A Major Order succeeded | `mo_success.wav`, else compiled-in | The order left the feed with every task complete — see [Event screens](#event-screens). |
 | A Major Order failed | `mo_failure.wav`, else compiled-in | The order left the feed incomplete, or its deadline passed with tasks outstanding. |
 | The board updated itself | compiled-in | The running `HD2_FW_VERSION` differs from the one the last boot recorded in NVS (`hd2` / `fwVer`). An OTA reboots into the new image, so the *next* boot is the only moment this is detectable. A first-ever boot has nothing stored and stays silent. |
-| Power-up | two-tone chime | Every boot. Deliberately not the alert clip: a power-cycle is the one event where nothing has happened, and spending a multi-second alert on it would wear out the alert's meaning. |
+| Power-up | `mo_new.wav`, else compiled-in | Every boot, once the panel is lit, as confirmation that power reached the board — the one thing a unit can say before it has a network. Since a boot now also announces the live order a poll later, a power-on with WiFi up plays this clip twice: once here, once behind the announcement. |
 
 The compiled-in clip is 8-bit unsigned PCM at 8 kHz mono, stored in `PROGMEM` as
 `src/hud_audio_clip.h` and played by `audio::playPcm8()`. 8 kHz is telephone
@@ -662,9 +668,27 @@ are acknowledged, and are the only screens on the device with no chrome.
 
 | | |
 |---|---|
-| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and as much of High Command's briefing as fits in four lines. Raised when the assignment id changes, on the same gate as the new-order alert, so a reboot does not re-announce an order that was already running. Dismissing it hands back to the carousel on that order's *first* objective. |
-| ![success](docs/preview_success.png) | **ORDER COMPLETE** — every task was done at the last observation. The green band is the whole design: from across a room the colour has already said it before any of the words have. |
-| ![failure](docs/preview_failure.png) | **ORDER FAILED** — the order ended incomplete, or its deadline passed with tasks outstanding. The objective count is here because "3 of 4 objectives met" is a materially different evening from "0 of 4". |
+| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and as much of High Command's briefing as fits in four lines, under the winged globe. Raised when the assignment id changes, and also once per boot for whichever order is already live (see below). Dismissing it hands back to the carousel on that order's *first* objective. |
+| ![success](docs/preview_success.png) | **MAJOR ORDER SUCCESSFUL** — every task was done at the last observation. Green chrome and a lit rank of stars: from across a room the colour has already said it before any of the words have. |
+| ![failure](docs/preview_failure.png) | **MAJOR ORDER FAILED** — the order ended incomplete, or its deadline passed with tasks outstanding. Red chrome, the sky gone to smoke, the flag in rags. The objective count is here because "3/4 objectives met" is a materially different evening from "0/4", and the stars light to the same fraction. |
+
+**One photograph, three screens.** All three are the reference composition:
+text down a left panel, an angled divider, and the Super Earth flag over the
+orbital city on the right. The art is a real photograph rather than vector
+approximation — `src/hud_mo_art.h`, generated by `tools/gen_mo_art.py`, stored
+as a 120x160 RGB565 plate and bilinearly upscaled to 240x320 on the device by
+the same `srcCoord()`/`lerp565()` pair the biome strips use.
+
+It is one plate because three do not fit. Full size is 240x320x2 = 153,600
+bytes against the 66,939 free in the app slot; two half-res plates are 76,800
+and still do not fit; one is 38,400 and does. So the renderer grades the single
+plate per screen instead — `ArtGrade` in `hud_renderer.cpp`, an integer
+desaturate/gain/lift per pixel plus a squared ember ramp up from the skyline
+for the failure. The values were set by sampling the reference banners against
+the same regions of this plate rather than by eye, and the failure's torn flag
+is drawn on top, its geometry measured off the plate so the shreds land on
+cloth and not on the horizon. That cost is what put the image at 98.8 % of the
+slot; see [Build and flash](#build-and-flash).
 
 **How the verdict is worked out.** The API has no outcome field and no history
 endpoint — an assignment that ends simply stops being listed. So the verdict is
@@ -684,6 +708,32 @@ An outcome is announced once (`verdictAnnouncedFor`). Without that, an expired
 order sitting on the feed would re-fire every poll, and a device left alone
 overnight would come back to a panel that had been shouting at an empty room
 since 2 am.
+
+**A boot announces the live order.** Power-on, power restore and the reboot an
+OTA lands on all put the current Major Order on the panel, on the same screen a
+brand new one gets. A board coming back up otherwise joined the war silently
+and left you to work out what it was fighting for from a progress bar.
+
+That cannot reuse the id check: after a reboot there is no previous order in
+RAM for the id to have changed *from*, which is exactly the case that check
+suppresses. So it is a separate trigger — `announceOnNextPoll` in
+`src/main.cpp`, armed in `setup()` and spent by the first poll that has an
+order to show — ending at the same `queueOverlay(kOverlayNewOrder, ...)` call.
+Three things follow from that shape:
+
+- **Once per boot, not once per poll.** The flag is cleared the first time it
+  raises anything, so the five-minute poll after it is quiet.
+- **A boot into a quiet galaxy stays armed.** If the feed has no order yet the
+  flag is not spent on nothing; the announcement lands on the poll where High
+  Command issues one.
+- **The id check is untouched.** Mid-run detection still fires on a genuine
+  rotation and is still gated on having polled before, so a reconnect after an
+  outage does not re-announce the order that was already running.
+
+Power-on and a post-update boot behave identically — the version NVS already
+keeps for the update alert (`hd2` / `fwVer`) only picks the word the serial log
+prints, `power-on` / `post-update boot` / `first boot`, so a unit on a desk can
+be asked afterwards why its screen was showing an order.
 
 **Dismissing.** A tap is the intended gesture; any swipe works too, since a
 screen that has taken over the panel refusing a gesture just reads as broken.

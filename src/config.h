@@ -131,6 +131,25 @@ constexpr uint16_t lime     = rgb565(0x8C, 0xC6, 0x3F);  // #8CC63F success acce
 constexpr uint16_t limeDim  = rgb565(0x59, 0x7E, 0x28);  // #597E28 borders
 constexpr uint16_t limeMute = rgb565(0x35, 0x4C, 0x18);  // #354C18 hazard hatch
 
+// The two Major Order verdict accents, sampled off mo_verdict_reference.jpg.
+//
+// Neither is `green`/`red`: those are the link-state dot and the enemy-regen
+// tint, both picked to sit quietly inside a card, and a verdict accent has to
+// carry a whole screen the way `gold` does. Nor is the success one `lime` --
+// that came off the calibration reference and is an electric yellow-green,
+// where this reference's pair are deliberately muted, a sage and a brick.
+// Same three-step shape as the gold and lime families: accent, border, hatch.
+constexpr uint16_t sage      = rgb565(0x8F, 0xB5, 0x6A);  // #8FB56A success accent
+constexpr uint16_t sageDim   = rgb565(0x5A, 0x73, 0x42);  // #5A7342 borders
+constexpr uint16_t sageMute  = rgb565(0x33, 0x44, 0x28);  // #334428 hazard hatch
+constexpr uint16_t brick     = rgb565(0xA8, 0x45, 0x3A);  // #A8453A failure accent
+constexpr uint16_t brickDim  = rgb565(0x6B, 0x2A, 0x23);  // #6B2A23 borders
+constexpr uint16_t brickMute = rgb565(0x3E, 0x18, 0x15);  // #3E1815 hazard hatch
+// What a tear in the failure screen's flag shows through. Not the sky behind
+// it -- the plate is one photograph and there is nothing behind it to sample
+// -- but the smoke the reference's shredded flag is hanging in.
+constexpr uint16_t smoke     = rgb565(0x26, 0x14, 0x0F);  // #26140F
+
 // Major Order header bar. The bar's own fill is the artwork in
 // hud_header_art.h; these are the two things drawn over it.
 constexpr uint16_t hdrEdge  = rgb565(0x32, 0x36, 0x2C);  // #32362C hairline border
@@ -478,4 +497,96 @@ constexpr int16_t calBandTextX = calCardX + (calCardW - calBandTextW) / 2;  // 9
 // The wing marks flanking that line on the success screen: three stacked bars,
 // tapering away from the text, mirrored either side of it.
 constexpr int16_t calMarkW = 22, calMarkGap = 14;
+
+// --------------------------------------------------------------------------
+//  The three Major Order event overlays
+//
+//  Traced from mo_new_reference.jpg (the announcement) and the two stacked
+//  mockups in mo_verdict_reference.jpg (success, failure). All three are the
+//  same composition -- a dark text panel down the left with an angled right
+//  edge, the flag photograph filling the right, an accent hairline along the
+//  divider -- and differ in accent colour, badge, copy and how the art is
+//  graded. So the geometry below is shared by all three and hud_renderer.cpp
+//  branches on a colour family, the way the two calibration screens already
+//  do.
+//
+//  Proportions against the references:
+//
+//   * The art takes 50% of the width. The announcement reference gives it 60%
+//     and the verdict pair 49%, but the announcement reference is 1179px wide
+//     and this panel is 480: a proportional 40% text column is 192px, and the
+//     briefing does not wrap into that at 9pt, which is the floor here. 50%
+//     splits the difference and is inside the range the references span.
+//   * The divider leans 30px left over the full height. The announcement
+//     reference leans 35px over 620 and the verdict pair 65px over 330; this
+//     is between them, nearer the announcement, because on a 320px-tall panel
+//     the verdict slant would eat the bottom of the text column.
+//   * The art plate is a photograph, at half resolution and scaled up -- see
+//     tools/gen_mo_art.py for the byte arithmetic that forces that, and for
+//     why one plate is graded three ways instead of three plates.
+//
+//  What does not match: the reference's announcement art is a blue night, its
+//  success a brighter cloudy sky and its failure a burning red one, three
+//  separate photographs. There is room for one. The success and failure are
+//  that one re-graded on the fly, so their skylines are the announcement's
+//  buildings under a different sky rather than genuinely different cities.
+// --------------------------------------------------------------------------
+// The art plate: drawn at 2x moart::kW/kH, flush to the right edge.
+constexpr int16_t ovlArtW = 240;
+constexpr int16_t ovlArtX = screenW - ovlArtW;  // 240
+// The panel's angled right edge, top and bottom. The art starts left of
+// ovlEdgeBot so the divider never uncovers a gap at the foot of the screen.
+constexpr int16_t ovlEdgeTop = 272, ovlEdgeBot = 242;
+constexpr int16_t ovlEdgeInk = 2;   // the accent hairline riding that edge
+// Text column: left margin, and the clearance it keeps off the angled edge.
+constexpr int16_t ovlPadX = 22, ovlTextPadR = 14;
+// The vertical hazard stripe down the far left. The announcement reference has
+// one; neither verdict does, so neither of those draws it.
+constexpr int16_t ovlStripeW = 10;
+// The hatched band along the panel's foot. The verdict references have one;
+// the announcement uses the space for its closing line instead.
+constexpr int16_t ovlBandH = 24;
+
+// Header row, shared: a badge at the left margin, the title beside it, a rule
+// under both with the reference's angled tail on its right end.
+constexpr int16_t ovlHdrY = 12, ovlBadgeS = 34, ovlTitleGap = 12;
+constexpr int16_t ovlRuleY = 52, ovlRuleTail = 10;
+// The announcement's badge carries wing bars either side of its disc; they sit
+// outside ovlBadgeS and so push the title along.
+constexpr int16_t ovlWingW = 14, ovlWingGap = 3;
+
+// --- announcement rows ----------------------------------------------------
+// The briefing, in the reference's prose-block position and, like it, four
+// lines. The lead is 19 and not the 17 the glyphs need, for the reason spelled
+// out over calCopyDy: these are mixed-case rows drawn TL_DATUM, the baseline
+// lands a fixed 13px down, and an opaque-background row 17px below this one
+// would repaint over this one's descenders.
+//
+// Four lines of this column is ~160 characters and High Command writes longer,
+// so wrapText() ellipses. The order's title is not in here -- it is in the
+// objective card below, in full, which is where the reference puts the thing
+// the screen is actually announcing.
+constexpr int16_t ovlBriefY = 62, ovlBriefLead = 19, ovlBriefMax = 4;
+// "=== OBJECTIVE ===" and "=== REWARD ===", the reference's section rules.
+constexpr int16_t ovlDivH = 18;
+constexpr int16_t ovlObjDivY = 150;
+constexpr int16_t ovlObjCardY = 168, ovlObjCardH = 66;
+constexpr int16_t ovlObjLead = 22;   // title rows inside that card
+constexpr int16_t ovlRwdDivY = 242;
+constexpr int16_t ovlRwdRowY = 262, ovlRwdRowH = 28;
+// The closing line: a wing mark and the dismiss hint, where the reference has
+// its eagle and PREPARE. DEPLOY. COMPLETE.
+constexpr int16_t ovlFootY = 296, ovlFootH = 18;
+
+// --- verdict rows ---------------------------------------------------------
+// Three lines of the reference's own closing prose, then its accent line, then
+// the two rows this device has that a marketing mockup does not: how many
+// objectives were met, and what the order paid.
+constexpr int16_t ovlVerdProseY = 66, ovlVerdLead = 20;
+constexpr int16_t ovlVerdAccentY = 134, ovlVerdAccentH = 20;
+constexpr int16_t ovlVerdStatY = 162, ovlVerdStatH = 22;
+// The reference's star row: five stars between two wing marks.
+constexpr int16_t ovlVerdStarY = 228, ovlVerdStarR = 7, ovlVerdStarGap = 20;
+// The dismiss hint, above the hatched band.
+constexpr int16_t ovlVerdDismissY = 262, ovlVerdDismissH = 18;
 }  // namespace layout
