@@ -84,16 +84,22 @@ struct PlanetEvent {
 // this matches on keywords the way hazardFromName() does, and picks the closest
 // plate. A miss shows a plausible landscape of the wrong flavour, never a
 // broken screen -- kBiomeUnknown is the floor.
+//
+// Positionally coupled to biomes::table -- the value IS the table index, so
+// this list and the table's order must be edited together. The table is
+// generated from the slugs in tools/assets/biomes sorted by name, minus the
+// UNREACHABLE set in tools/gen_biomes.py, which is why eight plates the art
+// set ships (the extra black holes and glaciers, the two tutorial biomes) have
+// no enumerator here: nothing below ever returned them, so they were costing a
+// flash slot 19,360 B apiece to never be drawn.
 enum : int8_t {
-  kBiomeBlackhole1 = 0, kBiomeBlackhole2, kBiomeBlackhole3, kBiomeBlackholeBase,
-  kBiomeBlackholeConv, kBiomeBugHive, kBiomeConiferous, kBiomeCyberstan,
-  kBiomeDeciduousAutumn, kBiomeDeciduous, kBiomeGlacier, kBiomeGlacierBot,
-  kBiomeGlacierRocky, kBiomeGlacierIndustrial, kBiomeMagma, kBiomeMoorArid,
-  kBiomeMoor, kBiomeMoorRed, kBiomeMoorTundra, kBiomePrimordial,
-  kBiomePrimordialBlue, kBiomePrimordialBug, kBiomePrimordialDead,
-  kBiomePrimordialPurple, kBiomePrimordialTame, kBiomeSandyAcid, kBiomeSandy,
-  kBiomeSandyMineral, kBiomeSandyMoon, kBiomeSandySpiky, kBiomeSandyTutorial,
-  kBiomeSuperEarth, kBiomeSwamp, kBiomeSwampHaunted, kBiomeUnknown,
+  kBiomeBlackhole3 = 0, kBiomeBlackholeBase, kBiomeBugHive, kBiomeConiferous,
+  kBiomeCyberstan, kBiomeDeciduousAutumn, kBiomeDeciduous, kBiomeGlacier,
+  kBiomeMagma, kBiomeMoorArid, kBiomeMoor, kBiomeMoorRed, kBiomeMoorTundra,
+  kBiomePrimordial, kBiomePrimordialBlue, kBiomePrimordialBug,
+  kBiomePrimordialDead, kBiomePrimordialPurple, kBiomeSandyAcid, kBiomeSandy,
+  kBiomeSandyMineral, kBiomeSandyMoon, kBiomeSandySpiky, kBiomeSuperEarth,
+  kBiomeSwamp, kBiomeSwampHaunted, kBiomeUnknown,
 };
 
 inline int8_t biomeFromName(const String &raw) {

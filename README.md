@@ -112,10 +112,14 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 17.3 % (56,732 bytes static)**, **Flash 98.8 %
-(2,006,697 of 2,031,616 bytes)** — 24,919 bytes spare. The last 42 KB of that
-went on the Major Order overlay art plate; see [Event screens](#event-screens)
-for the arithmetic and what was traded away to make it fit.
+Resource usage as built: **RAM 17.3 % (56,732 bytes static)**, **Flash 91.2 %
+(1,851,857 of 2,031,616 bytes)** — 179,759 bytes spare. That figure was 98.8 %
+until eight biome plates that no runtime path could reach came out of
+`hud_biomes.h` (19,360 bytes apiece; `biomeFromName()` in `src/hd2_model.h` is
+the only thing that indexes that table and never returned them). Before that,
+42 KB had gone on the Major Order overlay art plate, and
+[Event screens](#event-screens) still has the arithmetic for what was traded
+away to make that fit.
 
 That flash figure is high because the partition table splits the 4 MB into
 **two 1.9375 MiB app slots**, which is what [OTA](#firmware-updates) needs: the
@@ -135,13 +139,15 @@ slot.
 > the OTA fails cleanly if an image will not fit — but the headroom below is
 > only real once the unit has been flashed over USB once.
 
-> ⚠️ **Under 25 KB of headroom left, and assets are what ate it.** That is
-> about one more icon table, and nothing like another photograph. The next
-> substantial addition to `hud_biomes.h`, `hud_icons.h`, `hud_mo_art.h` or
-> `hud_audio_clip.h` will not fit; the failure mode is a link error, not
-> something subtle. New art and audio belong on the SD card now. The stock
-> `huge_app.csv` is not an option any more; it has only one app slot and would
-> silently take OTA away.
+> ⚠️ **Compiled-in assets are what fill this slot.** `hud_biomes.h`,
+> `hud_icons.h`, `hud_mo_art.h` and `hud_audio_clip.h` are most of the image,
+> and the headroom went as low as 24 KB before the dead biome plates came out.
+> There is room again — roughly another full-screen plate's worth — but the
+> failure mode when it runs out is a link error rather than anything subtle,
+> so check the size output on anything art-shaped. Large new art and audio
+> still belong on the [SD card](#sd-card). The stock `huge_app.csv` is not an
+> option either way; it has only one app slot and would silently take OTA
+> away.
 
 ---
 
@@ -688,7 +694,8 @@ for the failure. The values were set by sampling the reference banners against
 the same regions of this plate rather than by eye, and the failure's torn flag
 is drawn on top, its geometry measured off the plate so the shreds land on
 cloth and not on the horizon. That cost is what put the image at 98.8 % of the
-slot; see [Build and flash](#build-and-flash).
+slot at the time; see [Build and flash](#build-and-flash) for where it stands
+now.
 
 **How the verdict is worked out.** The API has no outcome field and no history
 endpoint — an assignment that ends simply stops being listed. So the verdict is

@@ -31,6 +31,25 @@ W, H = 220, 44
 # repaint on the ESP32.
 DIM = 0.55
 
+# Plates no runtime path can reach. biomeFromName() in src/hd2_model.h is the
+# only thing that indexes the table, and it never returns these -- the API
+# names them nothing it matches (the three extra black holes and the three
+# extra glaciers each collapse onto their _base plate, and the two tutorial
+# biomes are not in the live war). Each one is 19,360 B of a flash slot that
+# has ~25 KB spare, so they are skipped rather than shipped. The source .webp
+# files stay in tools/assets/biomes -- if the API ever starts naming one of
+# these, add the match to biomeFromName() and drop the slug from here.
+UNREACHABLE = {
+    "blackhole1",
+    "blackhole2",
+    "blackhole_conventional",
+    "glacier_bot",
+    "glacier_coldrocky",
+    "glacier_tienkwan",
+    "primordial_tutorial",
+    "sandy_tutorial",
+}
+
 
 def rgb565(r, g, b):
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
@@ -64,6 +83,8 @@ def main():
 
     slugs = sorted(os.path.splitext(os.path.basename(p))[0]
                    for p in glob.glob(os.path.join(SRC_DIR, "*.webp")))
+    skipped = [s for s in slugs if s in UNREACHABLE]
+    slugs = [s for s in slugs if s not in UNREACHABLE]
     imgs = [(s, reduce_biome(os.path.join(SRC_DIR, s + ".webp"))) for s in slugs]
 
     with open(OUT_H, "w") as f:
@@ -95,6 +116,8 @@ def main():
 
     total = len(imgs) * W * H * 2
     print(f"wrote src/hud_biomes.h  ({len(imgs)} biomes, {total / 1024:.0f} KB)")
+    if skipped:
+        print(f"  skipped {len(skipped)} unreachable: {', '.join(skipped)}")
     if args.preview:
         for i, (slug, _) in enumerate(imgs):
             print(f"  {i:>2}  {slug}")

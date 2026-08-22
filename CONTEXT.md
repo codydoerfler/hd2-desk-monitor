@@ -168,8 +168,11 @@ The restyle, second and larger:
   can only read as notches in the screen border; what reads is the hem, a
   clean curve from (102,185) to (234,217) silhouetted against the horizon,
   with tatters hanging off it in the graded cloth colour.
-- **The cost is 42KB and the slot is now at 98.8%** (2,006,697 of 2,031,616,
-  ~24KB spare). Inside the budget, but that is the end of compiled-in art.
+- **The cost is 42KB, which took the slot to 98.8%** (2,006,697 of 2,031,616,
+  ~24KB spare) — the end of compiled-in art at the time. Stripping the eight
+  unreachable biome plates on 2026-08-21 has since bought that back and more:
+  **91.2% (1,851,857), ~175KB spare**. The art is still the expensive thing
+  here; the slack is just no longer measured in single KB.
 - **`tools/check_layout.py` grew an overlay section**, which it had none of
   before — it was passing these screens by not looking at them. It now mirrors
   the trapezoid (`edge_x()`/`text_r()`), so every row is measured against the
@@ -391,13 +394,20 @@ Before that, a SEAF/skull rebrand:
 - Verify builds with `python3 -m platformio run` before considering a
   change done. Watch RAM/flash usage in the build output (device has no
   PSRAM, headroom is limited).
-- Flash headroom is nearly gone: OTA needs two app slots, `partitions_hd2.csv`
-  caps the image at 1.9375 MiB, and the build now sits at **98.8% (2,006,697
-  of 2,031,616 bytes, ~24KB spare)** — the Major Order overlay art took 42KB
-  of it. Compiled-in art is what fills it, and there is no longer room for
-  another plate. If a change overflows the slot, the fix is the SD card, or a
+- Flash is the constraint to watch: OTA needs two app slots,
+  `partitions_hd2.csv` caps the image at 1.9375 MiB, and the build sits at
+  **91.2% (1,851,857 of 2,031,616 bytes, ~175KB spare)**. It was at 98.8%
+  until the eight unreachable biome plates came out (2026-08-21, −154,824 B);
+  the Major Order overlay art before that had cost 42KB. Compiled-in art is
+  what fills this slot, so treat the headroom as a budget rather than as room
+  to stop counting. If a change overflows it, the fix is the SD card, or a
   custom partition CSV growing **both** app slots equally — not reverting to
   `huge_app.csv`, which would remove OTA.
+- `src/hud_biomes.h` is generated: edit `tools/gen_biomes.py`, not the header.
+  Its `UNREACHABLE` set holds the eight plates `biomeFromName()` can never
+  return, and the `kBiome*` enum in `hd2_model.h` is **positionally coupled**
+  to the generated table — the enumerator's value *is* the table index, so the
+  two must be edited together or every planet draws the wrong landscape.
 - Regenerate and visually check `preview_*.png` via `tools/preview.sh` for
   any change touching `hud_renderer.cpp` or the generated art headers, and run
   `python3 tools/check_layout.py`, before saying a visual change is complete.
