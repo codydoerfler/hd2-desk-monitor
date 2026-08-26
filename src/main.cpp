@@ -159,21 +159,10 @@ static OverlayKind overlayQueue[2] = {kOverlayNone, kOverlayNone};
 static MajorOrder overlayQueueSubject[2];
 static uint8_t overlayQueueLen = 0;
 
-// millis() when the overlay on screen went up, and whether its clip still owes
-// a play. Same queue-then-fire discipline as alertPending: sound follows the
-// repaint, never leads it.
-static uint32_t overlayShownMs = 0;
+// Whether the overlay on screen still owes its clip a play. Same
+// queue-then-fire discipline as alertPending: sound follows the repaint, never
+// leads it.
 static bool overlaySoundPending = false;
-
-// How long an overlay waits before giving up on being acknowledged.
-//
-// Touch is the intended way out and this is a safety net, not a feature: a
-// panel that has stopped reading must not be able to strand the HUD on a
-// verdict forever. One poll interval is the natural length -- it is the
-// "dismiss on the next successful poll" fallback the brief suggested, arrived
-// at by the clock instead of by the network, so it holds even if the network
-// is also gone.
-static const uint32_t kOverlayFallbackMs = (uint32_t)HD2_POLL_INTERVAL_S * 1000UL;
 
 static void queueOverlay(OverlayKind kind, const MajorOrder &subject) {
   if (overlayQueueLen >= 2) return;  // cannot happen; not a reason to corrupt
@@ -950,13 +939,19 @@ void loop() {
   if (gesture == touch::kNone) gesture = touch::poll();
 
   if (model.overlay != kOverlayNone) {
-    // Any contact dismisses. A tap is the documented gesture, but a swipe
-    // aimed at a screen that has taken the whole panel means the same thing,
-    // and refusing it would only read as the touch being broken.
+    // Touch is the only way out. An announcement is meant to interrupt, and
+    // nobody is necessarily at the desk when High Command issues one -- an
+    // overlay that expired on a timer would clear itself unseen, which is the
+    // one failure this screen exists to avoid. So it holds the panel
+    // indefinitely: no fallback timer, no dismissal on the next poll or the
+    // next order change.
+    //
+    // Any contact counts. A tap is the documented gesture, but a swipe aimed
+    // at a screen that has taken the whole panel means the same thing, and
+    // refusing it would only read as the touch being broken.
     const bool acknowledged = (gesture != touch::kNone);
-    const bool timedOut = (uint32_t)(nowMs - overlayShownMs) >= kOverlayFallbackMs;
-    if (acknowledged || timedOut) {
-      Serial.printf("[overlay] dismissed by %s\n", acknowledged ? "touch" : "timeout");
+    if (acknowledged) {
+      Serial.println("[overlay] dismissed by touch");
       const bool wasNewOrder = (model.overlay == kOverlayNewOrder);
       model.overlay = kOverlayNone;
       // Hand back to the new order's first objective rather than to wherever
@@ -984,7 +979,6 @@ void loop() {
     overlayQueue[0] = overlayQueue[1];
     overlayQueueSubject[0] = overlayQueueSubject[1];
     overlayQueueLen--;
-    overlayShownMs = nowMs;
     overlaySoundPending = true;
   }
 
