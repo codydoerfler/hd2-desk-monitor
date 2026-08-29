@@ -589,4 +589,21 @@ constexpr int16_t ovlVerdStatY = 162, ovlVerdStatH = 22;
 constexpr int16_t ovlVerdStarY = 228, ovlVerdStarR = 7, ovlVerdStarGap = 20;
 // The dismiss hint, above the hatched band.
 constexpr int16_t ovlVerdDismissY = 262, ovlVerdDismissH = 18;
+
+// --- the one-day bulletin -------------------------------------------------
+// Nothing above applies to it: hud_bulletin_art.h is a finished card, drawn
+// edge to edge with no panel, no divider and no header, so the only geometry
+// it needs is where the dismiss hint goes.
+//
+// The card leaves a black strip under its footer rule once cropped to 3:2 --
+// tools/gen_bulletin_art.py slides the crop down to keep exactly that -- and
+// the hint sits in it at the left, clear of the "THIS IS NOT A DRILL" line
+// above and of the chevrons that flank it. Measured off the scaled plate
+// rather than guessed: in the x span below, rows 297-303 carry that line's
+// rule and rows 304 down are black. So the box is one row into the rule and
+// sixteen into the strip, which keeps it within a row of the ovlFootH=18 the
+// other three overlays set this same string in. Any less and FONT_LABEL's
+// caps start getting clipped to protect a hairline nobody can see.
+constexpr int16_t ovlBulHintX = 8, ovlBulHintW = 150;
+constexpr int16_t ovlBulHintY = screenH - 17, ovlBulHintH = 17;
 }  // namespace layout

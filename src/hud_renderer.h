@@ -171,6 +171,12 @@ class HUDRenderer {
   // exposed up, a failure is desaturated toward a warm grey with an ember
   // glow off the skyline.
   void drawOverlayArt(OverlayKind kind);
+  // The one-day bulletin, which is not one of the three above and shares none
+  // of their layout: hud_bulletin_art.h scaled 1.6x onto the whole panel
+  // through the same srcCoord()/lerp565() pair, plus the dismiss hint. No
+  // subject, no grade, no panel — the card is already composed.
+  // tools/gen_bulletin_art.py has the sizing and the crop.
+  void drawBulletinOverlay();
   // Shreds bitten out of the flag's fly edge, slits through its body, and
   // tatters hanging off its hem — the failure reference's flag is in rags and
   // a grade alone cannot tear cloth. Failure only, over the graded plate.
