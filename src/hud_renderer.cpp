@@ -1966,9 +1966,8 @@ void HUDRenderer::drawOverlay(const HudModel &m, time_t nowUtc) {
     // --- the way out -------------------------------------------------------
     // Where the reference closes with its eagle and PREPARE. DEPLOY. COMPLETE.
     // The wording is this device's: the screen has taken the whole panel and
-    // there is no other affordance on it, and the line covers the fallback
-    // timer too -- someone reading it should not be left wondering whether
-    // anything will ever move again.
+    // there is no other affordance on it, and touch is the only way out --
+    // nothing clears this on a timer, so the line is the whole instruction.
     drawWingBars(ovlPadX + 16, ovlFootY + ovlFootH / 2, 16, -1, accent);
     const int16_t footX = ovlPadX + 26;
     textBox(footX, ovlFootY, overlayTextR(ovlFootY + ovlFootH) - footX, ovlFootH,
