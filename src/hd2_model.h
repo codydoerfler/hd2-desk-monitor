@@ -346,6 +346,13 @@ enum OverlayKind : uint8_t {
   kOverlayNewOrder,  // an assignment id this device has not seen before
   kOverlaySuccess,   // left the feed with every task complete
   kOverlayFailure,   // left the feed incomplete, or ran out of time
+  // Not a Major Order event at all, and the odd one out here: a one-day
+  // full-bleed card, raised from setup() on a calendar date rather than by
+  // anything the poll loop inferred, carrying no `overlaySubject` and making
+  // no sound. It shares the enum because it wants exactly what the other
+  // three have -- the whole panel, held until touched -- and nothing else in
+  // the model or the renderer is a better place to hang that from.
+  kOverlayBulletin,
 };
 
 struct HudModel {

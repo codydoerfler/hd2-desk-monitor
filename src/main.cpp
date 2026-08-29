@@ -155,8 +155,22 @@ static void playCompiledAlert() {
 // poll -- the outgoing order's verdict and the incoming order's announcement,
 // which is the ordinary case when High Command replaces one with the next --
 // and they have to be seen in that order, so this is a queue and not a slot.
-static OverlayKind overlayQueue[2] = {kOverlayNone, kOverlayNone};
-static MajorOrder overlayQueueSubject[2];
+//
+// Three deep, not two, since setup() gained a third raiser. Two was exactly
+// the depth a poll needed, and it was enough while a poll was the only source:
+// the queue was always empty when one ran, because an overlay is drained on
+// the next loop iteration after it is queued. The bulletin breaks that. It is
+// queued in setup(), so it is on the panel by the time the first poll returns
+// and the boot announcement it raises sits in the queue behind it -- and
+// unlike a timed screen, an undismissed overlay holds the panel for as long as
+// nobody walks past the desk. A poll landing in that window brings its own
+// pair, wants three slots, and at two would drop the announcement silently --
+// queueOverlay() below is a return, not an assert, and rightly so. One
+// MajorOrder of .bss buys the slot back; RAM is at 17%.
+static const uint8_t kOverlayQueueMax = 3;
+static OverlayKind overlayQueue[kOverlayQueueMax] = {kOverlayNone, kOverlayNone,
+                                                    kOverlayNone};
+static MajorOrder overlayQueueSubject[kOverlayQueueMax];
 static uint8_t overlayQueueLen = 0;
 
 // Whether the overlay on screen still owes its clip a play. Same
@@ -165,7 +179,7 @@ static uint8_t overlayQueueLen = 0;
 static bool overlaySoundPending = false;
 
 static void queueOverlay(OverlayKind kind, const MajorOrder &subject) {
-  if (overlayQueueLen >= 2) return;  // cannot happen; not a reason to corrupt
+  if (overlayQueueLen >= kOverlayQueueMax) return;  // not a reason to corrupt
   overlayQueue[overlayQueueLen] = kind;
   overlayQueueSubject[overlayQueueLen] = subject;
   overlayQueueLen++;
@@ -241,6 +255,50 @@ static bool announceOnNextPoll = false;
 // was reflashed" is worth telling apart from "someone kicked the plug out".
 static const char *bootAnnounceReason = "power-on";
 
+// --- the one-day bulletin ---------------------------------------------------
+//
+// A gag with an expiry date: Cody had a fake MAJOR ORDER BULLETIN card
+// generated announcing that Anthropic's AI goes self-aware at 02:14 on
+// 2026-08-29, and it takes the panel that day and never again.
+//
+// "Never again" is the whole design constraint. A boot flag or a first-N-
+// minutes window would leave something behind to turn off -- a unit reflashed
+// in November would replay a joke about August, and the only cure would be
+// another release. A calendar date needs no cure: the comparison below simply
+// stops being true at midnight and the code is inert from then on, on every
+// unit, with nothing to remember.
+//
+// Rebooting twice on the day shows it twice. That is the honest reading of
+// "show it on the 29th" and it costs one touch, where the alternative -- a
+// stored "already shown" flag in NVS -- is exactly the kind of state this is
+// built to avoid.
+static const int kBulletinYear = 2026, kBulletinMon = 8, kBulletinDay = 29;
+
+// True if the device's local calendar date is the bulletin's.
+//
+// Local, not UTC: the card names a date and an Eastern time, and a desk in
+// Denver should see it on the 29th as the desk reads it, not for the last 18
+// hours of the 28th. The offset is the one the WiFi portal stored, and the
+// date is read the same way drawFooter() reads the local clock -- shift the
+// epoch, then gmtime_r() it as if it were UTC. There is no TZ database in
+// this image to do it properly with, and a fixed offset is what the rest of
+// the firmware already assumes.
+//
+// A device whose NTP sync failed says no. It cannot know what day it is, and
+// the failure mode of guessing is a promo screen ambushing someone in
+// September because their router was down at boot -- strictly worse than
+// missing the joke once.
+static bool todayIsBulletinDay(int16_t utcOffsetMin) {
+  const time_t nowUtc = time(nullptr);
+  if (nowUtc < 1600000000) return false;  // no NTP; same guard setup() uses
+
+  struct tm tmv;
+  const time_t local = nowUtc + (time_t)utcOffsetMin * 60;
+  gmtime_r(&local, &tmv);
+  return tmv.tm_year + 1900 == kBulletinYear && tmv.tm_mon + 1 == kBulletinMon &&
+         tmv.tm_mday == kBulletinDay;
+}
+
 static storage::Clip overlayClip(OverlayKind k) {
   switch (k) {
     case kOverlaySuccess: return storage::kClipSuccess;
@@ -259,6 +317,11 @@ static storage::Clip overlayClip(OverlayKind k) {
 // says something, it just cannot say which thing happened.
 static void playOverlayAlert(OverlayKind kind) {
   if (kind == kOverlayNone) return;
+  // The bulletin is silent, deliberately. The other three are announcements of
+  // things that happened in the war and the sound is how a unit across the
+  // room reports them; this is a joke on a calendar date, and a desk that
+  // shouts at whoever is nearest because it is the 29th is not funny twice.
+  if (kind == kOverlayBulletin) return;
   if (!storage::playClip(overlayClip(kind))) playCompiledAlert();
 }
 
@@ -877,6 +940,19 @@ void setup() {
   hud.showBoot("Synchronising clock...");
   syncClock();
 
+  // Queued here because this is the first point where both halves of a local
+  // date exist: syncClock() has just returned, and model.utcOffsetMin was read
+  // out of NVS (and possibly rewritten by the portal) above.
+  //
+  // Independent of announceOnNextPoll -- that one is armed for a poll that has
+  // not happened yet and carries a real order, this one has everything it
+  // needs now and carries nothing. Both can be pending at boot; the queue is
+  // sized for it and either order is fine.
+  if (todayIsBulletinDay(model.utcOffsetMin)) {
+    Serial.println(F("[bulletin] today is the day — queued"));
+    queueOverlay(kOverlayBulletin, MajorOrder());
+  }
+
   hud.showBoot("Contacting High Command...");
   hud.invalidate();
 
@@ -976,9 +1052,11 @@ void loop() {
   if (model.overlay == kOverlayNone && overlayQueueLen > 0) {
     model.overlay = overlayQueue[0];
     model.overlaySubject = overlayQueueSubject[0];
-    overlayQueue[0] = overlayQueue[1];
-    overlayQueueSubject[0] = overlayQueueSubject[1];
     overlayQueueLen--;
+    for (uint8_t i = 0; i < overlayQueueLen; ++i) {
+      overlayQueue[i] = overlayQueue[i + 1];
+      overlayQueueSubject[i] = overlayQueueSubject[i + 1];
+    }
     overlaySoundPending = true;
   }
 
