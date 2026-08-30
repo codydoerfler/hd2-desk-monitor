@@ -328,6 +328,34 @@ inline bool ratePerHour(float nowPct, time_t nowAt, float prevPct, time_t prevAt
   return true;
 }
 
+// --- Count-task progress floor ----------------------------------------------
+//
+// A count-style task's `progress` is re-read fresh from the assignments
+// payload on every poll and nothing about it is monotonic upstream. The
+// community API is known to reshuffle a count task's numeric fields around the
+// point it resolves: a task that has genuinely hit its goal can come back on a
+// later poll with `progress` reset to 0 while `goal` is still intact. Taken as
+// ground truth that reads as an objective falling off a cliff to 0.0% at
+// exactly the moment it should read 100% / COMPLETE.
+//
+// So one high-water mark per task slot is carried across polls and the
+// incoming reading is floored against it. This is a display floor over a known
+// upstream quirk, not a correction of anything this client computes -- forward
+// movement is passed through untouched, only a *backwards* step is clamped.
+//
+// The identity guard is deliberately strict, and matches the one the
+// count-progress pass in rollRateHistory() already uses: a mark only applies to
+// the same task slot of the same order carrying the same `taskType` and the
+// same `goal`. A task edited in place, or a goal revised mid-order, is a
+// different objective and starts its own mark from scratch rather than
+// inheriting a high water it never reached.
+struct CountFloor {
+  bool valid = false;
+  int32_t taskType = -1;
+  uint64_t goal = 0;
+  uint64_t progress = 0;  // highest `progress` legitimately seen for this task
+};
+
 // Everything the renderer needs for one frame.
 // --- Event overlays ---------------------------------------------------------
 //
@@ -376,6 +404,16 @@ struct HudModel {
   RateSample history[kMaxOrderTasks];
   int32_t historyOrderId = 0;
 
+  // High-water progress per order task, and the order it belongs to. Same
+  // lifecycle as `history`/`historyOrderId` above and keyed the same way --
+  // wiped whenever the Major Order id changes, since a new order's targets
+  // share nothing with the old one's and a mark carried across that boundary
+  // would freeze a fresh objective at the previous one's reading. Applied by
+  // applyCountProgressFloor() below, before the incoming order reaches
+  // anything that reads it.
+  CountFloor countFloor[kMaxOrderTasks];
+  int32_t countFloorOrderId = 0;
+
   // The active liberation campaigns, top kMaxCampaigns by player count,
   // fetched every poll regardless of whether a Major Order is active — they
   // form the back half of the carousel (MO task cards first, then
@@ -401,6 +439,64 @@ struct HudModel {
   // boot (see main.cpp); durations such as the countdown ignore it.
   int16_t utcOffsetMin = 0;
 };
+
+// Floor an incoming order's count-task progress against what has already been
+// seen for the same tasks, and fold the new readings into the marks. See
+// CountFloor above for why this exists.
+//
+// Call once per successful poll with `next` fully parsed and *before* anything
+// reads it -- the verdict classifier, the rate history and `model.order`
+// itself all want the floored figure, so that the headline, the progress bar,
+// the "X / Y" caption, the ETA and the %/h readout all agree and none of them
+// has to know this quirk exists. Feeding the rate history the floored value
+// matters for its own sake too: diffing a real reading against a reset-to-zero
+// one would print a large negative %/h spike at the same moment the card
+// showed 0.0%.
+//
+// Only regressions are clamped. A fresh order, a new task, a revised goal and
+// ordinary forward progress all pass through exactly as parsed, so an order
+// that legitimately sits at 0% on its first polls still reads 0%.
+inline void applyCountProgressFloor(HudModel &m, MajorOrder &next) {
+  if (next.id != m.countFloorOrderId) {
+    for (int i = 0; i < kMaxOrderTasks; i++) m.countFloor[i] = CountFloor();
+    m.countFloorOrderId = next.id;
+  }
+
+  for (int i = 0; i < kMaxOrderTasks; i++) {
+    CountFloor &f = m.countFloor[i];
+
+    // Not a count task (or not a task at all): nothing here has a high water
+    // mark to keep, and holding a stale one would let it apply to whatever
+    // lands in this slot next.
+    if (i >= next.taskCount || !next.tasks[i].valid || !taskIsCount(next.tasks[i])) {
+      f = CountFloor();
+      continue;
+    }
+
+    OrderTask &t = next.tasks[i];
+
+    // First sighting of this objective, or a different objective in the same
+    // slot. Whatever it reads now is the baseline, not a regression.
+    if (!f.valid || f.taskType != t.taskType || f.goal != t.goal) {
+      f.valid = true;
+      f.taskType = t.taskType;
+      f.goal = t.goal;
+      f.progress = t.progress;
+      continue;
+    }
+
+    if (t.progress < f.progress) {
+      t.progress = f.progress;
+      // `complete` is derived from progress/goal by the parser, so it has to
+      // be re-derived from the floored figure -- otherwise the bar would read
+      // 100% while the headline still said in-progress. taskIsCount() puts
+      // goal above 1, so there is no divide-by-nothing case to guard here.
+      t.complete = t.progress >= t.goal;
+    } else {
+      f.progress = t.progress;
+    }
+  }
+}
 
 // --- LIBCON ------------------------------------------------------------
 //

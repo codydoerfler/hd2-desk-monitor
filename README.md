@@ -822,6 +822,7 @@ connection) and sprites (~27 KB peak).
 | No order *and* no campaigns | Idle screen: the large Super Earth emblem, "NO ACTIVE MAJOR ORDER", and the war totals in the three tiles. |
 | Multiple simultaneous orders | The first is shown. |
 | Planet fetch fails, index unchanged | Previous planet data is reused. |
+| Count task's `progress` comes back lower | The highest reading already seen for that task is held. The community API reshuffles a count task's numeric fields around the point it resolves, and a finished objective can report back with `progress` at 0 while `goal` is intact — read literally that drops the card from 100% to 0.0% at exactly the wrong moment. Only regressions are clamped, and the mark is dropped whenever the order id, the task type or the goal changes. |
 | War fetch fails | Previous war stats are kept; the tiles never blank. |
 | API or WiFi failure | The last good data stays on screen. The footer's sync clock turns amber and reads `STALE hh:mm`. |
 | Repeated failures | Exponential backoff, 15 s doubling to a 10-minute ceiling. |
@@ -852,17 +853,25 @@ or a timezone database on the device. See [Local time](#local-time).
 Two tools in `tools/` let you check layout changes without flashing. Both read
 the **actual** GFX font tables and `src/hud_icons.h`, so their measurements
 match the device to the pixel. Run them from the project root, after at least
-one `pio run` (they read `.pio/libdeps/...`).
+one `pio run` (they read `.pio/libdeps/...`). A third checks behaviour rather
+than layout: `count_floor_test.sh` drives `HudModel` across synthetic polls
+against the real `src/hd2_model.h`, and needs no `pio run` first.
 
 ```bash
 ./tools/preview.sh              # every scene -> preview_<scene>.png
 ./tools/preview.sh defense      # just one
 python3 tools/check_layout.py   # asserts every HUD string fits its box
+./tools/count_floor_test.sh     # count-task progress floor, across polls
 ```
 
 Scenes are `boot`, `touchprompt`, `touchsuccess`, `defense`, `invasion`,
-`liberation`, `campaign`, `count`, `extraction`, `idle`, `stale`,
+`liberation`, `campaign`, `count`, `countreset`, `extraction`, `idle`, `stale`,
 `uncalibrated`, `neworder`, `success`, `failure` and `carousel`.
+
+`countreset` is the count card immediately after the community API resets a
+completed task's `progress` to 0 — it drives `applyCountProgressFloor()` over
+two synthetic polls rather than hand-setting the numbers, so it shows what the
+device now draws for that upstream quirk: 100%, complete, and no negative %/h.
 
 `success` is the Major Order verdict overlay and `touchsuccess` is the touch
 calibration confirmation — unrelated screens with confusable names.
