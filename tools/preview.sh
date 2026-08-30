@@ -11,8 +11,12 @@
 #      ./tools/preview.sh defense    # just one
 #
 #  Scenes: boot, touchprompt, touchsuccess, defense, invasion, liberation,
-#          campaign, count, extraction, idle, stale, uncalibrated, neworder,
-#          success, failure, carousel.
+#          campaign, count, countreset, extraction, idle, stale, uncalibrated,
+#          neworder, success, failure, carousel.
+#
+#  `countreset` is the count card after the community API resets a completed
+#  task's progress to 0 — it drives applyCountProgressFloor() over two polls,
+#  so it should read 100%/complete, never 0.0%.
 #
 #  `success` is the Major Order verdict overlay; `touchsuccess` is the touch
 #  calibration confirmation. Unrelated screens, easily confused by name.

@@ -95,15 +95,23 @@ clips where a card is present.
 ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
 to check a layout/art change before flashing real hardware. Scenes: `boot`,
 `touchprompt`, `touchsuccess`, `idle`, `liberation`, `defense`, `invasion`,
-`stale`, `uncalibrated`, `campaign`, `count`, `extraction`, `neworder`,
-`success`, `failure`, `carousel` (`success` is the Major Order verdict
-overlay; `touchsuccess` is the calibration confirmation). All but the last
+`stale`, `uncalibrated`, `campaign`, `count`, `countreset`, `extraction`,
+`neworder`, `success`, `failure`, `carousel` (`success` is the Major Order
+verdict overlay; `touchsuccess` is the calibration confirmation; `countreset`
+is the count card after the API resets a completed task's progress to 0). All but the last
 are shot onto a cleared screen; `carousel` advances a page and repaints
 incrementally, which is the path the device actually lives on. Outputs land at
 repo root as `preview_<scene>.png` and are **gitignored there**; the copies a PR
 is read against live in `docs/`, so copy them across after regenerating.
 Regenerate after any renderer/icon change and look at them before calling a
 visual change done.
+
+`tools/count_floor_test.sh` is the other off-target check: it compiles
+`src/hd2_model.h` against the same host shim and drives `HudModel` across
+synthetic polls, covering the count-task progress floor (a completed count task
+whose `progress` the API resets to 0 must not fall to 0.0%). No hardware, no
+network; prints one line per case and exits non-zero on failure. Run it after
+touching the count/progress path.
 
 There is also `docs/icon-audit/` — a standalone HTML report
 (`icon_audit.html`) that lays out every icon/mark in the project at a

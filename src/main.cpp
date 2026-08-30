@@ -727,6 +727,20 @@ static void poll() {
   // the next order to arrive instead of announcing nothing.
   const bool announceBootOrder = order.valid && announceOnNextPoll;
 
+  // Clamp any count task whose progress came back *lower* than this device has
+  // already seen for the same objective. Done here, on the raw parse, so that
+  // everything downstream -- the verdict classifier, the rate history, the
+  // model the renderer draws from -- sees one consistent figure. See
+  // applyCountProgressFloor() in hd2_model.h for the upstream quirk it exists
+  // for. Deliberately ahead of classifyOrderOutcome(): an order whose last
+  // task completes and then reports back at zero is a SUCCESS, and reading the
+  // reset literally would announce it as a loss.
+  //
+  // Called unconditionally, same as rollRateHistory() below: a poll that
+  // comes back with no order at all carries id 0 and no tasks, which clears
+  // the marks on exactly the lifecycle `historyOrderId` uses.
+  applyCountProgressFloor(model, order);
+
   // How the outgoing order ended, if it did. Gated on haveData for the same
   // reason as orderIsNew: on the first poll after a reboot there is no
   // "before" to compare against, and an empty model.order would otherwise be

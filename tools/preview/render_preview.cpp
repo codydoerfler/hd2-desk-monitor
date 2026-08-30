@@ -205,6 +205,37 @@ static HudModel sceneCount() {
   return m;
 }
 
+// The same count objective after it finishes and the community API resets its
+// `progress` field to 0 on a later poll — the 0.0%-once-complete bug. Built by
+// running the two polls through applyCountProgressFloor() exactly as poll()
+// does, rather than by hand-setting the numbers, so this shows what the device
+// now draws and not what the scene author hoped it would.
+static HudModel sceneCountReset() {
+  HudModel m = sceneCount();
+  const int32_t id = m.order.id;
+
+  MajorOrder done = m.order;                       // poll 1: goal reached
+  done.tasks[0].progress = done.tasks[0].goal;
+  done.tasks[0].complete = true;
+  applyCountProgressFloor(m, done);
+  m.order = done;
+
+  MajorOrder reset = done;                         // poll 2: upstream resets it
+  reset.id = id;
+  reset.tasks[0].progress = 0;
+  reset.tasks[0].complete = false;
+  applyCountProgressFloor(m, reset);
+  m.order = reset;
+
+  // The %/h pair the card quotes, floored on both sides the way the poll loop
+  // leaves it — a reset must not read as a plunge.
+  RateSample &h = m.history[0];
+  h.haveCount = true;
+  h.countAt = kNow - 60 - 3600;
+  h.countPct = 99.6f;
+  return m;
+}
+
 // The same family of objective with its planet missing — /planets/{index}
 // 404s for indices absent from the community API's static table, which is the
 // normal state of a planet added to the war days before the table catches up.
@@ -337,6 +368,7 @@ int main(int argc, char **argv) {
       {"liberation", sceneLiberation}, {"idle", sceneIdle},
       {"campaign", sceneCampaign},
       {"count", sceneCount},       {"extraction", sceneExtraction},
+      {"countreset", sceneCountReset},
       {"stale", sceneStale},
       {"neworder", sceneNewOrder}, {"success", sceneSuccess},
       {"failure", sceneFailure},   {"uncalibrated", sceneUncalibrated},
