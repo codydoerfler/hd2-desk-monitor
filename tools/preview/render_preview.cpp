@@ -140,6 +140,32 @@ static HudModel sceneLiberation() {
   return m;
 }
 
+// The same liberation target after the planet has finished flipping. The live
+// API stops reporting a resolved planet as a combat target and reports it
+// fully *healed* instead — currentOwner "Humans", health == maxHealth — which
+// the health-derived liberation figure reads as 0.0%. Confirmed live against
+// index 172, GAR HAREN, on 2026-08-30. The task's own progress/goal say 1/1,
+// so the card must read 100.0% LIBERATED, never 0.0%.
+static HudModel sceneLibDone() {
+  HudModel m = sceneLiberation();
+  OrderTask &t = m.order.tasks[0];
+  t.progress = 1;                 // straight off the assignments endpoint
+  t.goal = 1;
+  t.complete = t.progress >= t.goal;
+  t.planet.owner = "Humans";      // the healed record the API now returns
+  t.planet.maxHealth = 1000000;
+  t.planet.health = t.planet.maxHealth;
+  t.planet.liberation = 0.0f;     // what fetchPlanet() derives from it
+  // A sample from an hour back, while the push was still live. The rate is
+  // frozen rather than diffed against this — see cardRates().
+  RateSample &h = m.history[0];
+  h.valid = true;
+  h.planetIndex = t.planet.index;
+  h.at = m.lastSuccess - 3600;
+  h.libPct = 79.4f;
+  return m;
+}
+
 static HudModel sceneIdle() {   // polled fine, but there is no Major Order
   HudModel m = sceneDefense();
   m.order = MajorOrder{};
@@ -365,7 +391,8 @@ int main(int argc, char **argv) {
 
   std::map<String, std::function<HudModel()>> scenes{
       {"defense", sceneDefense},   {"invasion", sceneInvasion},
-      {"liberation", sceneLiberation}, {"idle", sceneIdle},
+      {"liberation", sceneLiberation}, {"libdone", sceneLibDone},
+      {"idle", sceneIdle},
       {"campaign", sceneCampaign},
       {"count", sceneCount},       {"extraction", sceneExtraction},
       {"countreset", sceneCountReset},

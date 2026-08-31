@@ -1,6 +1,10 @@
 // ---------------------------------------------------------------------------
 //  count_floor_test.cpp — drive HudModel across synthetic polls, on the host.
 //
+//  Covers the two upstream-reset defences the card carries: the count-task
+//  progress floor (applyCountProgressFloor) and the completed-liberation
+//  figure (taskLiberation).
+//
 //  There is no hardware and no network here: applyCountProgressFloor() lives in
 //  hd2_model.h with the rest of the plain data, so a poll can be simulated by
 //  handing it a MajorOrder and looking at what comes back. That is the whole
@@ -44,6 +48,25 @@ static MajorOrder countOrder(int32_t id, uint64_t progress, uint64_t goal = 1250
   // Exactly how hd2_api.cpp derives it from the payload.
   t.complete = t.goal > 0 ? (t.progress >= t.goal) : (t.progress > 0);
   return o;
+}
+
+// One liberate task, shaped the way the assignments endpoint delivers them:
+// progress/goal are the binary 0/1 or 1/1 pair, and the planet record is
+// filled in afterwards by the /planets/{index} fetch.
+static OrderTask liberateTask(uint64_t progress, uint64_t goal) {
+  OrderTask t;
+  t.valid = true;
+  t.taskType = kTaskTypeLiberate;
+  t.planetIndex = 172;
+  t.progress = progress;
+  t.goal = goal;
+  t.complete = t.goal > 0 ? (t.progress >= t.goal) : (t.progress > 0);
+  t.planet.valid = true;
+  t.planet.index = 172;
+  t.planet.name = "GAR HAREN";
+  t.planet.maxHealth = 1000000;
+  t.planet.health = 1000000;
+  return t;
 }
 
 // Push one order through the same call the poll loop makes, then commit it to
@@ -161,6 +184,53 @@ int main() {
     check(after.tasks[0].progress == 0, "fresh order starts at zero");
     check(!m.countFloor[0].valid || m.countFloor[0].progress == 0,
           "no stale mark left behind");
+  }
+
+  // --- A completed liberation whose planet reads as healed -----------------
+  // The mirror image of the reset above, and the reason taskLiberation()
+  // exists: the API stops reporting a resolved planet as a combat target and
+  // reports it at full health instead, which the health-derived figure reads
+  // as 0% taken. The task's own progress/goal still say it is done.
+  {
+    printf("liberate task complete, planet reported healed:\n");
+    OrderTask t = liberateTask(1, 1);
+    t.planet.liberation = 0.0f;   // what fetchPlanet() derives from a healed planet
+    t.planet.owner = "Humans";
+    check(t.complete, "the task itself still reads complete");
+    check(near(taskLiberation(t), 100.0f), "card figure is 100%, not 0%");
+  }
+
+  // --- A live push is left exactly as fetched -------------------------------
+  // The whole risk in this fix is changing how an in-progress liberation
+  // looks. It must pass through untouched at every reading, including a
+  // planet sitting at genuine 0% before anyone has pushed it.
+  {
+    printf("liberation in progress:\n");
+    const float steps[] = {0.0f, 12.5f, 79.4f, 99.9f};
+    bool ok = true;
+    for (int i = 0; i < 4; i++) {
+      OrderTask t = liberateTask(0, 1);
+      t.planet.liberation = steps[i];
+      if (!near(taskLiberation(t), steps[i])) ok = false;
+    }
+    check(ok, "every reading passed through as fetched");
+  }
+
+  // --- Nothing else is touched ----------------------------------------------
+  // Only a liberate-style task gets the 100% floor. A defend task at full
+  // health is not "fully liberated", and a count task is not measured by
+  // planet health at all — both already read t.complete their own way.
+  {
+    printf("other task types at full health:\n");
+    OrderTask d = liberateTask(1, 1);
+    d.taskType = kTaskTypeDefend;
+    d.planet.liberation = 0.0f;
+    check(near(taskLiberation(d), 0.0f), "a complete defend task is not floored");
+
+    MajorOrder c = countOrder(4011, kGoal);
+    c.tasks[0].planet.valid = true;
+    c.tasks[0].planet.liberation = 0.0f;
+    check(near(taskLiberation(c.tasks[0]), 0.0f), "a complete count task is not floored");
   }
 
   printf(failures ? "\n%d check(s) FAILED\n" : "\nall checks passed\n", failures);

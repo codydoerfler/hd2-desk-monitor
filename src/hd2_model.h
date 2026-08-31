@@ -256,6 +256,35 @@ inline float taskPercent(const OrderTask &t) {
   return pct > 100.0 ? 100.0f : (float)pct;
 }
 
+// The liberation figure a liberate-style task's card should actually show, as
+// opposed to the one fetchPlanet() derived from the planet record.
+//
+// PlanetInfo::liberation is 100 * (1 - health/maxHealth), which is only true
+// while the planet is a live combat target being pushed down from full health.
+// Once a planet finishes flipping to human control the API stops reporting it
+// as a target and reports it fully *healed* instead — currentOwner "Humans",
+// health == maxHealth, event null (confirmed live 2026-08-30 against index
+// 172, GAR HAREN). Health is a siege gauge, not a liberation record, so a
+// resolved planet reads as 0% liberated under that formula when it is in fact
+// 100% taken.
+//
+// The task carries the independent answer: `complete` is derived in
+// hd2_api.cpp from the assignment payload's own progress/goal (0/1 then 1/1
+// for a liberate task), a completely separate signal from the planet fetch and
+// not subject to this. So a completed liberation is 100%, whatever health
+// says. This is the same shape as the count-task floor above — there a
+// resolved task's own counter resets to 0 when it should hold high; here a
+// resolved planet's health resets to full when it should still read as taken.
+//
+// Deliberately keyed off the task, not the planet: the campaign carousel's
+// cards have no task and no completion flag, and their planets are by
+// definition mid-fight, so they keep reading PlanetInfo::liberation raw. This
+// is also why fetchPlanet()'s own math is left exactly as it is.
+inline float taskLiberation(const OrderTask &t) {
+  if (taskIsLiberation(t.taskType) && t.complete) return 100.0f;
+  return t.planet.liberation;
+}
+
 // Headroom over the largest order seen in the wild (three targets).
 static const int kMaxOrderTasks = 4;
 

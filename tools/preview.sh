@@ -11,12 +11,17 @@
 #      ./tools/preview.sh defense    # just one
 #
 #  Scenes: boot, touchprompt, touchsuccess, defense, invasion, liberation,
-#          campaign, count, countreset, extraction, idle, stale, uncalibrated,
-#          neworder, success, failure, carousel.
+#          libdone, campaign, count, countreset, extraction, idle, stale,
+#          uncalibrated, neworder, success, failure, carousel.
 #
 #  `countreset` is the count card after the community API resets a completed
 #  task's progress to 0 — it drives applyCountProgressFloor() over two polls,
 #  so it should read 100%/complete, never 0.0%.
+#
+#  `libdone` is its liberate-side twin: the planet has finished flipping, so
+#  the API reports it healed (health == maxHealth, owner Humans) and the
+#  health-derived figure reads 0.0%. The task is complete, so the card must
+#  read 100.0% LIBERATED.
 #
 #  `success` is the Major Order verdict overlay; `touchsuccess` is the touch
 #  calibration confirmation. Unrelated screens, easily confused by name.
