@@ -790,8 +790,10 @@ static void poll() {
                       t.planet.event.defended(), t.planet.event.faction.c_str(),
                       (unsigned)t.planet.hazardCount);
       } else if (taskIsLiberation(t.taskType) && t.planet.valid) {
+        // The same corrected figure the card shows, so the log and the panel
+        // cannot disagree about a planet that has finished flipping.
         Serial.printf("  [%d] type %d  %s  %.1f%% liberated\n", i + 1, (int)t.taskType,
-                      t.planet.name.c_str(), t.planet.liberation);
+                      t.planet.name.c_str(), taskLiberation(t));
       } else {
         Serial.printf("  [%d] type %d  %s  %s (owner %s)\n", i + 1, (int)t.taskType,
                       t.planet.valid ? t.planet.name.c_str() : "n/a",

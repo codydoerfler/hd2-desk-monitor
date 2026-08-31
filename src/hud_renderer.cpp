@@ -256,7 +256,19 @@ static CardRates cardRates(const HudModel &m, uint8_t idx, const OrderTask &t) {
     if (!h.haveEvent || h.eventEnd != p.event.endTime) return r;
     r.have = ratePerHour(p.event.defended(), p.observedAt, h.eventPct, h.at, r.pct);
   } else if (taskIsLiberation(t.taskType)) {
-    r.have = ratePerHour(p.liberation, p.observedAt, h.libPct, h.at, r.pct);
+    if (t.complete) {
+      // A finished liberation has nothing left to push, and its two samples no
+      // longer describe the same quantity: the history sample is raw planet
+      // health from an earlier poll, while what the bar now shows is
+      // taskLiberation()'s corrected 100%. Diffing those would print a
+      // several-hundred-%/h spike at the instant the planet heals — the same
+      // trap the count-task floor had to guard its own readout against. Freeze
+      // it instead, the way a met count objective's ETA reads MET.
+      r.have = true;
+      r.pct = 0.0f;
+    } else {
+      r.have = ratePerHour(p.liberation, p.observedAt, h.libPct, h.at, r.pct);
+    }
   }
   return r;
 }
@@ -389,7 +401,11 @@ static String targetSignature(const HudModel &m, uint8_t idx) {
   s += '|';
   s += String(p.playerCount);
   s += '|';
-  s += String((int)(p.liberation * 100.0f));
+  // The corrected figure, not p.liberation: this is a repaint dirty-check, so
+  // it has to track what the card actually draws. `complete` is above it in
+  // this same signature, so the completing poll repaints either way; encoding
+  // the displayed value keeps that true if the two ever come apart.
+  s += String((int)(taskLiberation(*t) * 100.0f));
   s += '|';
   s += String((unsigned long)p.observedAt);
   s += '|';
@@ -1121,7 +1137,7 @@ void HUDRenderer::drawCard(const HudModel &m) {
     snprintf(buf, sizeof(buf), "%.0f%% DEFENDED", p.event.defended());
     headline = buf;
   } else if (p.valid && taskIsLiberation(t->taskType)) {
-    snprintf(buf, sizeof(buf), "%.1f%% LIBERATED", p.liberation);
+    snprintf(buf, sizeof(buf), "%.1f%% LIBERATED", taskLiberation(*t));
     headline = buf;
   } else {
     const StatusLine st = objectiveStatus(*t);
@@ -1177,8 +1193,11 @@ void HUDRenderer::drawCard(const HudModel &m) {
                rateReadout(100.0f - held, r.have, -r.pct), accent, 100.0f - held,
                accent);
   } else if (p.valid && taskIsLiberation(t->taskType)) {
+    // taskLiberation(), not p.liberation: a planet that has finished flipping
+    // is reported healed, which the health-derived figure reads as 0% taken.
+    const float lib = taskLiberation(*t);
     drawBarRow(orderSoloCapY, orderSoloBarY, campBarH, String(F("LIBERATION")),
-               rateReadout(p.liberation, r.have, r.pct), theme::blue, p.liberation,
+               rateReadout(lib, r.have, r.pct), theme::blue, lib,
                theme::blue);
   } else {
     // A defend objective with nothing attacking it has no progress to show:

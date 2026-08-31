@@ -823,6 +823,7 @@ connection) and sprites (~27 KB peak).
 | Multiple simultaneous orders | The first is shown. |
 | Planet fetch fails, index unchanged | Previous planet data is reused. |
 | Count task's `progress` comes back lower | The highest reading already seen for that task is held. The community API reshuffles a count task's numeric fields around the point it resolves, and a finished objective can report back with `progress` at 0 while `goal` is intact — read literally that drops the card from 100% to 0.0% at exactly the wrong moment. Only regressions are clamped, and the mark is dropped whenever the order id, the task type or the goal changes. |
+| Liberated planet comes back at full health | The card reads 100% from the task's own `complete` flag instead. `liberation` is derived as `1 - health/maxHealth`, which only holds while a planet is a live combat target being pushed down; once it finishes flipping the API stops reporting it as a target and reports it fully *healed* (`currentOwner: "Humans"`, `health == maxHealth`), which that formula misreads as 0% liberated. The task's `progress`/`goal` are a separate signal and stay correct, so they win. Only a completed liberate task is corrected — an in-progress push and the campaign cards keep reading health exactly as before, and the %/h freezes at `+0.0` rather than diffing the corrected figure against a raw health sample. |
 | War fetch fails | Previous war stats are kept; the tiles never blank. |
 | API or WiFi failure | The last good data stays on screen. The footer's sync clock turns amber and reads `STALE hh:mm`. |
 | Repeated failures | Exponential backoff, 15 s doubling to a 10-minute ceiling. |
@@ -861,17 +862,26 @@ against the real `src/hd2_model.h`, and needs no `pio run` first.
 ./tools/preview.sh              # every scene -> preview_<scene>.png
 ./tools/preview.sh defense      # just one
 python3 tools/check_layout.py   # asserts every HUD string fits its box
-./tools/count_floor_test.sh     # count-task progress floor, across polls
+./tools/count_floor_test.sh     # count/liberation reset defences, across polls
 ```
 
 Scenes are `boot`, `touchprompt`, `touchsuccess`, `defense`, `invasion`,
-`liberation`, `campaign`, `count`, `countreset`, `extraction`, `idle`, `stale`,
-`uncalibrated`, `neworder`, `success`, `failure` and `carousel`.
+`liberation`, `libdone`, `campaign`, `count`, `countreset`, `extraction`,
+`idle`, `stale`, `uncalibrated`, `neworder`, `success`, `failure` and
+`carousel`.
 
 `countreset` is the count card immediately after the community API resets a
 completed task's `progress` to 0 — it drives `applyCountProgressFloor()` over
 two synthetic polls rather than hand-setting the numbers, so it shows what the
 device now draws for that upstream quirk: 100%, complete, and no negative %/h.
+
+`libdone` is the liberate-side twin of the same class of upstream quirk. Once a
+planet finishes flipping, the API stops reporting it as a combat target and
+reports it fully *healed* — `currentOwner: "Humans"`, `health == maxHealth` —
+which the health-derived liberation figure reads as 0.0% taken. The task's own
+`progress`/`goal` still say 1/1, so `taskLiberation()` shows 100.0% LIBERATED
+and freezes the %/h rather than diffing the corrected figure against a raw
+health sample.
 
 `success` is the Major Order verdict overlay and `touchsuccess` is the touch
 calibration confirmation — unrelated screens with confusable names.
