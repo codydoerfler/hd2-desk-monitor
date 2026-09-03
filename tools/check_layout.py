@@ -228,6 +228,66 @@ grid("campaign card grid", [("header", headerY, headerH), ("rule1", rule1Y, 1),
                             ("footer", footerY, footerH)],
      frameY + 1, frameY + frameH - 1)
 
+# The combined count card: one band, then a row per target. Its rows are laid
+# out at a pitch the renderer computes, so what is asserted here is the band
+# and the space the rows are given, and then the pitch bound separately below.
+grid("combined count card grid", [("header", headerY, headerH),
+                                  ("rule1", rule1Y, 1),
+                                  ("band", artY, moCombBandH),
+                                  ("rows", moCombRowY,
+                                   moCombRowsBot - moCombRowY),
+                                  ("footer", footerY, footerH)],
+     frameY + 1, frameY + frameH - 1)
+
+print("=== combined count card: the band ===")
+# The two text rows inside the band, and the clock plate they have to stop
+# short of. The plate rides the band's top corner here rather than its foot,
+# which is what frees the whole width for the title/overall row underneath.
+kPlateH = plateLabelH + plateClockH + 2 * platePadY
+kPlateL = cardX + cardW - plateInset - plateW
+check("subject row inside the band", moCombNameDy + moCombNameH, moCombBandH)
+check("foot row inside the band", moCombFootDy + moCombFootH, moCombBandH)
+check("subject row clear of the foot row", moCombNameDy + moCombNameH,
+      moCombFootDy)
+check("clock plate inside the band", moCombPlateDy + kPlateH, moCombBandH)
+check("subject column clear of the plate", cardX + artPad + 10, kPlateL)
+# "100.0% OVERALL" is the widest the overall figure gets: the number is set in
+# FONT_VALUE and the word in FONT_LABEL, measured separately by the renderer,
+# so they are measured separately here too.
+kOverallW = w(VALUE, "100.0%") + moCombPctGap + w(LABEL, "OVERALL")
+check('"100.0%" + "OVERALL" inside the card', kOverallW, cardW - 2 * artPad)
+# What is left for the order's title once the figure has taken its share. The
+# renderer trims to fit, so this only has to be enough for a title to be worth
+# printing at all -- an order name is 20-30 characters and this asserts the
+# column holds a legible fraction of one, not all of it.
+check('"MAJOR ORDER" @9pt bold in the title column', w(LABEL, "MAJOR ORDER"),
+      cardW - 2 * artPad - kOverallW - 8)
+
+print("=== combined count card: the target rows ===")
+# Four targets is the assignment API's cap (kMaxOrderTasks), so it is the
+# tightest the rows ever pack. The renderer centres them at the smaller of
+# moCombPitchMax and the space each gets.
+MAX_TASKS = 4
+kAvailH = moCombRowsBot - moCombRowY
+kPitch = min(moCombPitchMax, kAvailH // MAX_TASKS)
+print(f"    {kAvailH}px for {MAX_TASKS} rows -> pitch {kPitch}px")
+check(f"{MAX_TASKS} rows at their pitch fit the space", MAX_TASKS * kPitch,
+      kAvailH)
+check("caption and track fit one row's pitch", moCombBarDy + moCombBarH, kPitch)
+check("caption row clears the track above it", moCombCapH, moCombBarDy)
+# The caption is the built-in 6x8 face and shares its row with the percentage
+# column. The widest pair the renderer can print at full digits is a billion
+# against a billion, which is what formatCompact() exists to fall back from --
+# so this asserts the fallback is reachable, i.e. the compact form always fits.
+kCapW = cardW - moCombPctW - moCombPctGap
+check("full-digit caption at a realistic goal",
+      glcd("ELIMINATED  23,909,079 / 25,000,000"), kCapW)
+check("compact caption at the widest goal",
+      glcd("ELIMINATED  1.25B / 1.25B"), kCapW)
+check('"100.0%" @9pt bold in the percentage column', w(LABEL, "100.0%"),
+      moCombPctW)
+print()
+
 # The order card's single-track variant (a liberation, or a defence with
 # nothing attacking) reuses the taller campaign bar centred in the band the two
 # tracks would have filled. It has to stay inside that band, or it collides
@@ -413,25 +473,60 @@ check("hd2LogoBoot width in the content column", blw, contentW)
 check("hd2LogoBoot above the boot caption (y=48)", 48 + blh, 232)
 check("boot status line inside the frame", 264 + 20, frameY + frameH)
 
-print("\n=== header row (type word, LIBCON chip, carousel pips, wifi block) ===")
+print("\n=== header row (type word, LIBCON chip, carousel pips, MO button, wifi) ===")
 # Every word drawStatusHeader() can be handed: the plain strip, the two planet
-# objective types, and the count-task headers from countWords().
+# objective types, the count-task headers from countWords(), and the plural the
+# combined card falls back to when its targets are not all the same kind.
 HEADER_WORDS = ["SUPER EARTH", "LIBERATION", "DEFENSE", "OBJECTIVE",
-                "EXTRACTION", "ERADICATION", "OPERATIONS"]
+                "EXTRACTION", "ERADICATION", "OPERATIONS", "OBJECTIVES"]
+# The row's right-hand limit is the reopen button, not the WiFi slot: the
+# button sits between the two, and drawStatusHeader() clears up to its left
+# edge for exactly this reason.
 for s in HEADER_WORDS:
-    check(f'"{s}" @9pt bold in its box', w(LABEL, s), contentW - wifiSlotW)
-# The chip and the pips are packed off the type word's measured width, so the
-# longest word is the one that has to leave room for them. Five pips is the
-# cap: four Major Order tasks, or five campaigns when there is no order.
-MAX_PIPS = 5
-pipRowW = pipRowGap + MAX_PIPS * pipS + (MAX_PIPS - 1) * pipGap
-for s in HEADER_WORDS:
-    check(f'"{s}" + chip + {MAX_PIPS} pips vs the WiFi slot',
-          padX + w(LABEL, s) + libconGapX + libconW + pipRowW,
-          contentR - wifiSlotW)
+    check(f'"{s}" @9pt bold in its box', w(LABEL, s), moBtnX - padX)
+# The pips are right-aligned on pipRowR now, so what has to clear is the chip
+# on their left rather than the WiFi slot on their right. Two page counts are
+# reachable and they do not pair with the same words: an order caps the
+# carousel at kMaxOrderTasks == 4 pages (a combined count order at 1), and five
+# pips only happen with no order at all, when the type word is always
+# "LIBERATION".
+# "SUPER EARTH" is not in either set: it is the fallback for an empty title,
+# which only happens on the screens drawStatusHeader() is called with pages=0
+# -- boot, WiFi setup, and the no-data strip. It never shares the row with a
+# pip.
+CAROUSEL_WORDS = [s for s in HEADER_WORDS if s != "SUPER EARTH"]
+for pips, words in ((4, CAROUSEL_WORDS), (5, ["LIBERATION"])):
+    rowW = pips * pipS + (pips - 1) * pipGap
+    for s in words:
+        check(f'chip under "{s}" clear of {pips} right-aligned pips',
+              padX + w(LABEL, s) + libconGapX + libconW + pipRowGap,
+              pipRowR - rowW)
+check("pip row clear of the button", pipRowR + pipGap, moBtnX)
 check("active pip inside the header row", pipS, headerH)
 check('"OFFLINE" @9pt bold in wifi box',
       w(LABEL, "OFFLINE"), wifiSlotW - (2 * footDotR + 6))
+
+print("\n=== Major Order reopen button ===")
+# The button's own box, the emblem inside it, and the clearances either side.
+# The emblem is icons::emblemLarge sampled down by an integer 3, so the source
+# has to divide cleanly or the bottom row and right column are dropped.
+EMB_W, EMB_H = ICONS["emblemLarge"]
+check("button inside the header row", moBtnH, headerH)
+check("emblem/3 fits the button width", EMB_W // 3, moBtnW - 2)
+check("emblem/3 fits the button height", EMB_H // 3, moBtnH - 2)
+check("emblem samples at a whole factor (width)", EMB_W % 3, 0)
+check("emblem samples at a whole factor (height)", EMB_H % 3, 0)
+check("button clear of the WiFi slot", moBtnX + moBtnW + moBtnGap,
+      contentR - wifiSlotW)
+check("button inside the content column", moBtnX + moBtnW, contentR)
+# The tap target is the drawn box grown all round. It may overhang the button
+# generously -- nothing else on the panel takes a tap -- but it must stay
+# inside the frame, or part of it is unreachable.
+check("tap target starts inside the frame", frameX, moBtnHitX)
+check("tap target ends inside the frame", moBtnHitX + moBtnHitW,
+      frameX + frameW)
+check("tap target starts below the frame top", frameY, moBtnHitY)
+check("tap target above the first rule", moBtnHitY + moBtnHitH, rule1Y)
 
 print("\n=== faction badge ===")
 for n in sorted(set(FACTION_ICON.values())):
@@ -650,9 +745,18 @@ check("caution stripe clear of the text column", ovlStripeW, ovlPadX)
 # 13px down -- see the note over calCopyDy. A shorter lead repaints the next
 # row's opaque background over this row's descenders.
 check("briefing lead clears 9pt descenders", 19, ovlBriefLead)
+# The briefing pages through the block rather than being cut at its fourth
+# line, so the marker row under it is part of the grid now. Its width bound is
+# generous -- "24/24" in the 6x8 face is 30px -- but the row's *height* is the
+# tight one: it has to fit between the block's last line and the OBJECTIVE
+# divider, which the grid below asserts.
+check('"24/24" marker in the 6x8 face', glcd("24/24"), ovlBriefPipW)
+check("the wrap cap holds a long briefing",
+      ovlBriefMax * 6, ovlBriefLinesMax)  # >= 6 pages of four lines
 grid("Major Order announcement", [
     ("header", ovlHdrY, ovlBadgeS),
     ("briefing", ovlBriefY, ovlBriefMax * ovlBriefLead),
+    ("brief pip", ovlBriefPipY, ovlBriefPipH),
     ("obj rule", ovlObjDivY, ovlDivH),
     ("obj card", ovlObjCardY, ovlObjCardH),
     ("rwd rule", ovlRwdDivY, ovlDivH),

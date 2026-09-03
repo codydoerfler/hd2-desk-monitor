@@ -16,6 +16,7 @@
 
 #include "../../src/hud_renderer.h"
 #include "../../src/hd2_model.h"
+#include "../../src/config.h"
 
 // --- PNG output (zlib stored-block deflate, so there is nothing to link) ----
 
@@ -281,6 +282,77 @@ static HudModel sceneExtraction() {
   return m;
 }
 
+// The combined count card: an order whose targets are all count-style and
+// share a planet slot, collapsed onto one page. Figures are lifted verbatim
+// from live order 3038612729 (2026-09-02), the order this layout was built
+// for -- four kill targets, one per faction, none of them tied to a planet
+// anyone is fighting over.
+//
+// planetIndex is 0 on every target here, and that is not a placeholder: the
+// live assignment really does carry a valueType-12 slot holding 0, so the
+// parser records index 0 (Super Earth) rather than "none". The card refuses to
+// name a planet below index 1 for exactly that reason, so what this scene
+// proves is that the subject line falls back to GALAXY-WIDE on the real
+// payload and not merely on a hand-cleared one.
+//
+// The four percentages are deliberately spread (95.6 / 47.8 / 22.2 / 4.2) so
+// the shot shows a full track, two partials, and a nearly-empty one -- a set
+// where every bar sat at the same fill would not show whether the tracks are
+// actually being driven per row.
+static HudModel sceneCombined() {
+  HudModel m = sceneCount();
+  m.order.title = "EXTERMINATION QUOTA";
+  m.order.briefing = "";
+  m.order.taskCount = 4;
+  m.order.expiration = kNow + 3 * 86400 + 4 * 3600;
+
+  struct Row { uint8_t type; uint64_t progress, goal; };
+  const Row rows[4] = {
+      {kTaskTypeEradicate, 23909079ull, 25000000ull},
+      {kTaskTypeEradicate, 11950000ull, 25000000ull},
+      {kTaskTypeEradicate, 5548750ull, 25000000ull},
+      {kTaskTypeEradicate, 1050000ull, 25000000ull},
+  };
+  for (int i = 0; i < 4; i++) {
+    OrderTask &t = m.order.tasks[i];
+    t = OrderTask{};
+    t.valid = true;
+    t.taskType = rows[i].type;
+    t.planetIndex = 0;          // the live payload's value, not "unset"
+    t.progress = rows[i].progress;
+    t.goal = rows[i].goal;
+    t.complete = false;
+    m.history[i] = RateSample{};
+  }
+  return m;
+}
+
+// The same card with its leading target finished, which is the state the
+// count-progress floor exists to survive: the community API resets a completed
+// task's `progress` to 0 on a later poll, and the row must still read 100% and
+// draw a full track. Built by running both polls through
+// applyCountProgressFloor() the way poll() does -- the floor is per task, and
+// the point of shooting it on this card is that combining the rows did not
+// bypass it.
+static HudModel sceneCombinedDone() {
+  HudModel m = sceneCombined();
+  const int32_t id = m.order.id;
+
+  MajorOrder done = m.order;                     // poll 1: the first goal lands
+  done.tasks[0].progress = done.tasks[0].goal;
+  done.tasks[0].complete = true;
+  applyCountProgressFloor(m, done);
+  m.order = done;
+
+  MajorOrder reset = done;                       // poll 2: upstream zeroes it
+  reset.id = id;
+  reset.tasks[0].progress = 0;
+  reset.tasks[0].complete = false;
+  applyCountProgressFloor(m, reset);
+  m.order = reset;
+  return m;
+}
+
 // A three-target order whose targets are not all the same kind: a liberation,
 // then a count, then a defence. Rendered by shootAdvance() rather than shoot()
 // — see main() — so what lands in the PNG is the *second* page reached by a
@@ -363,6 +435,27 @@ static HudModel sceneNewOrder() {
   return m;
 }
 
+// The same announcement with a briefing at the long end of what High Command
+// actually writes -- 512 characters, against the ~88 the four-line block holds
+// -- so the paging is shot against something that genuinely does not fit
+// rather than against a placeholder that happens to.
+//
+// Shot at three pages (see shootBrief() in main) because the failure this
+// replaces was invisible on page one: the old block drew four lines and an
+// ellipsis, which looks like a finished sentence unless you know the text.
+static HudModel sceneBriefLong() {
+  HudModel m = sceneNewOrder();
+  m.overlaySubject.briefing =
+      "High Command has confirmed that the Automaton reserve fleet withdrawn "
+      "from the Xzar sector has reassembled beyond the Cyberstan corridor and "
+      "is now staging for a coordinated push toward Super Earth. Their supply "
+      "chain runs through four forward foundries, each producing armour faster "
+      "than we can destroy it. Managed Democracy cannot be defended at the "
+      "gates. Deny them the flank, break the foundries, and hold the corridor "
+      "until reinforcements arrive. Freedom is not free. For Super Earth!";
+  return m;
+}
+
 static HudModel sceneSuccess() {
   HudModel m = sceneDefense();
   m.overlay = kOverlaySuccess;
@@ -396,6 +489,7 @@ int main(int argc, char **argv) {
       {"campaign", sceneCampaign},
       {"count", sceneCount},       {"extraction", sceneExtraction},
       {"countreset", sceneCountReset},
+      {"combined", sceneCombined}, {"combineddone", sceneCombinedDone},
       {"stale", sceneStale},
       {"neworder", sceneNewOrder}, {"success", sceneSuccess},
       {"failure", sceneFailure},   {"uncalibrated", sceneUncalibrated},
@@ -427,6 +521,24 @@ int main(int argc, char **argv) {
     const String out = "preview_" + name + ".png";
     writePng(out.c_str(), tft.pixels(), tft.width(), tft.height(), scale);
     printf("wrote %s\n", out.c_str());
+  };
+
+  // A long briefing at page `page`. The overlay repaints once when it goes up
+  // and then only when a page's dwell expires, so the pages are reached by
+  // winding the preview clock forward and calling update() again -- the same
+  // path the device takes, not a direct call into the draw routine.
+  auto shootBrief = [&](const String &name, const HudModel &m, int page) {
+    g_previewMillis = 0;
+    hud.invalidate();
+    hud.update(m, kNow);
+    for (int i = 0; i < page; i++) {
+      g_previewMillis += layout::ovlBriefPageMs;
+      hud.update(m, kNow);
+    }
+    const String out = "preview_" + name + ".png";
+    writePng(out.c_str(), tft.pixels(), tft.width(), tft.height(), scale);
+    printf("wrote %s\n", out.c_str());
+    g_previewMillis = 0;
   };
 
   // The boot screen takes no model, so it is handled on its own.
@@ -463,6 +575,16 @@ int main(int argc, char **argv) {
     if (want == "touchprompt") { shootTouchPrompt(); return 0; }
     if (want == "touchsuccess") { shootTouchSuccess(); return 0; }
     if (want == "carousel") { shootAdvance(want, sceneCarousel()); return 0; }
+    if (want == "brieflong") {
+      // First, middle, last -- the last one specifically, because the whole
+      // point is that the tail of the briefing reaches the panel. A shot that
+      // stopped short of it would prove no more than the old four-line block
+      // did.
+      const int want[3] = {0, 2, 5};
+      for (int i = 0; i < 3; i++)
+        shootBrief("brieflong" + String(want[i] + 1), sceneBriefLong(), want[i]);
+      return 0;
+    }
     auto it = scenes.find(want);
     if (it == scenes.end()) { fprintf(stderr, "unknown scene: %s\n", argv[1]); return 1; }
     shoot(want, it->second());
@@ -474,5 +596,9 @@ int main(int argc, char **argv) {
   shootTouchSuccess();
   for (auto &kv : scenes) shoot(kv.first, kv.second());
   shootAdvance("carousel", sceneCarousel());
+  const int briefPages[3] = {0, 2, 5};  // first, middle, last
+  for (int i = 0; i < 3; i++)
+    shootBrief("brieflong" + String(briefPages[i] + 1), sceneBriefLong(),
+               briefPages[i]);
   return 0;
 }

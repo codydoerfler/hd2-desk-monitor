@@ -8,8 +8,9 @@ prior chat history. Read this, then README.md for full technical detail.
 
 A standalone desk display that shows the live Helldivers 2 Major Order
 (target planet, liberation %, time remaining, player counts) on a small
-ESP32-driven color LCD. No buttons; touch is swipe-to-page and tap-to-dismiss
-only. WiFi + USB-C powered. Polls the community API at api.helldivers2.dev
+ESP32-driven color LCD. No physical buttons; touch is swipe-to-page,
+tap-to-dismiss, and one on-screen tap target — the emblem button in the header
+row, which reopens the current order's announcement. WiFi + USB-C powered. Polls the community API at api.helldivers2.dev
 every 5 minutes and renders a Super Earth command-terminal style HUD.
 
 Cards are art-led: the biome plate fills the upper half with the planet's
@@ -18,9 +19,19 @@ planet objective, three on a count one), then the footer. An active Major Order 
 carousel pages); with no order, the five busiest liberation campaigns take
 over. Pages advance on a 7s timer, or on a swipe (which restarts the timer).
 
+An order whose targets are all count-style and share a planet slot -- the
+galaxy-wide "kill N of each faction" shape -- collapses to a single combined
+card instead of a page per target: a band naming the subject, the order and the
+overall mean, then one row per target with its figures, its own percentage and
+its track. Liberation and defence targets are excluded; they keep the per-task
+card, which their artwork and planet stats need. See orderIsCombinedCount() in
+src/hud_renderer.cpp.
+
 Two events take the whole panel: a new Major Order arriving, and the verdict
-when one ends. They interrupt the carousel and stay up until tapped, with a
-one-poll-interval timeout so a dead panel cannot strand the HUD on them. A
+when one ends. They interrupt the carousel and stay up until tapped -- no
+timeout, because nobody is necessarily at the desk when one is raised. The
+announcement's briefing pages through its four-line block every 4.5s with an
+n/N marker, rather than being cut at the fourth line the way it used to be. A
 boot — power-on, power restore, or the reboot after an OTA — also raises the
 new-order screen once, for whichever order is already live. It drives the
 board's speaker on all of those events and after an OTA update, from SD-card
@@ -96,11 +107,14 @@ ESP32) and rasterizes each HUD screen state to PNG. This is the primary way
 to check a layout/art change before flashing real hardware. Scenes: `boot`,
 `touchprompt`, `touchsuccess`, `idle`, `liberation`, `libdone`, `defense`,
 `invasion`, `stale`, `uncalibrated`, `campaign`, `count`, `countreset`,
-`extraction`, `neworder`, `success`, `failure`, `carousel` (`success` is the
+`combined`, `combineddone`, `extraction`, `neworder`, `brieflong`, `success`,
+`failure`, `carousel` (`success` is the
 Major Order verdict overlay; `touchsuccess` is the calibration confirmation;
 `countreset` is the count card after the API resets a completed task's progress
 to 0; `libdone` is the liberate card after a flipped planet is reported healed
-at full health). All but the last
+at full health; `combined`/`combineddone` are the combined count card and that
+same reset inside it; `brieflong` writes three files, a 512-character briefing
+at its first, middle and last page). All but the last
 are shot onto a cleared screen; `carousel` advances a page and repaints
 incrementally, which is the path the device actually lives on. Outputs land at
 repo root as `preview_<scene>.png` and are **gitignored there**; the copies a PR

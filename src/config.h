@@ -366,6 +366,40 @@ constexpr int16_t stripCapY = 242, stripCapH = 10;
 constexpr int16_t stripValY = 252, stripValH = 22;
 constexpr int16_t stripCols = 4;
 
+// --- the combined count card ----------------------------------------------
+//
+// One page listing every objective of an order whose targets are all
+// count-style and none of which names a planet of its own -- the "galaxy-wide,
+// several kill targets" shape. Those orders used to fill the carousel with one
+// full page per kill counter, which is four swipes to read four numbers that
+// belong side by side. See orderIsCombinedCount() in hud_renderer.cpp for the
+// test, and drawCombinedCard() for the composition.
+//
+// It owns the same band the per-task card does, artY..stripValY+stripValH, and
+// draws no stat strip: SHARE/DIVERS/PUSH/REGEN are all planet readings, and
+// this card has no planet by definition, so every column of that row would
+// read "--". That is what buys the rows below their height.
+constexpr int16_t moCombBandH = 66;                  // 46..112
+constexpr int16_t moCombNameDy = 4, moCombNameH = 34;   // Anton, the subject
+constexpr int16_t moCombFootDy = 42, moCombFootH = 22;  // title + overall row
+// The clock plate rides the top-right of the band rather than its foot: the
+// row below it runs the full width, which is where the overall figure goes.
+constexpr int16_t moCombPlateDy = 4;
+// Objective rows. Pitch is worked out per row count in drawCombinedCard() and
+// capped here, so a two-target order does not sit stretched across a grid
+// built for four; the block is centred in what is left over.
+constexpr int16_t moCombRowY = 116;
+constexpr int16_t moCombRowsBot = stripValY + stripValH;  // 274
+constexpr int16_t moCombPitchMax = 46;
+constexpr int16_t moCombCapH = 16;                  // caption + percentage row
+constexpr int16_t moCombBarDy = 18, moCombBarH = 14;
+// The per-task percentage's own column, right-aligned at the card's edge and
+// set in FONT_LABEL against the caption's 6x8 -- so the figure each row is
+// actually being read for is the biggest thing on it. "100.0%" is the widest
+// string it holds.
+constexpr int16_t moCombPctW = 62;
+constexpr int16_t moCombPctGap = 8;                 // caption -> percentage
+
 // --- header + footer ------------------------------------------------------
 // Gap between the objective-type word and the LIBCON chip beside it.
 constexpr int16_t libconGapX = 14;
@@ -376,9 +410,56 @@ constexpr int16_t libconGapX = 14;
 // clears the WiFi slot with the longest type word in front of them.
 constexpr int16_t pipS = 8, pipGap = 5, pipRowGap = 12;
 constexpr int16_t pipDimInset = 2;
-// The right-hand slot the WiFi label and dot own on the header row. Also what
-// the rest of that row is cleared *up to* -- see drawStatusHeader().
-constexpr int16_t wifiSlotW = 110;
+// The right-hand slot the WiFi label and dot own on the header row. 104 rather
+// than the 110 it was: the widest thing it holds is "OFFLINE" at 79px plus the
+// dot's 16, and the six pixels recovered are what let the reopen button fit
+// beside it. The label is right-aligned on contentR, not on this box's left
+// edge, so narrowing it moves nothing that is drawn.
+constexpr int16_t wifiSlotW = 104;
+
+// The Super Earth emblem button, in the header row between the carousel pips
+// and the WiFi slot. Drawn only while an order is actually live, and the one
+// tap target on the HUD: it reopens that order's announcement, which otherwise
+// fires once and is gone until the next order or the next boot.
+//
+// Deliberately at the right-hand end of the row it shares. The pips grow
+// leftwards from the type word and the swipe that pages them wants the middle
+// of the panel, so the far corner is the one place a button neither collides
+// with the carousel nor sits under the thumb that drives it.
+constexpr int16_t moBtnW = 30, moBtnH = headerH;    // 30 x 15
+constexpr int16_t moBtnGap = 3;                     // clearance off the WiFi slot
+constexpr int16_t moBtnX = contentR - wifiSlotW - moBtnGap - moBtnW;  // 323
+constexpr int16_t moBtnY = headerY;                 // 18
+// The pip row's right edge, which is now what the pips are packed against
+// rather than the type word they used to follow.
+//
+// Left-packing did not survive the button. The row's worst case is a long
+// count-task word ("ERADICATION", 129px) plus the LIBCON chip plus a pip per
+// page, which reached x=331 -- past the button entirely, with the button
+// itself needing the 35px before the WiFi slot. There was never that much
+// room: the row already had only 19px of slack before this change.
+//
+// Right-aligning buys it back, because the pips stop chasing the type word.
+// Worst case the chip ends at 259 and four pips ending here start at 271, and
+// the gap between them is 12px -- pipRowGap exactly, which is what it was
+// packed at before. It also fixes something that was already wrong: the pips
+// used to slide left when a long type word gave way to a short one, which is
+// the whole reason drawStatusHeader() has to clear the row this far across.
+constexpr int16_t pipRowR = moBtnX - pipGap;        // 318
+// What a finger has to hit, as opposed to what is drawn. A 30x15 chip is well
+// under any sane touch target, and the panel is resistive with a tap tolerance
+// of 24px of travel, so the rect is padded generously past the glyph on every
+// side. It stops short of the WiFi slot's left edge on the right and of the
+// frame on top, so it can never swallow a swipe aimed at the card below.
+// Padded further sideways than vertically, because that is where the room is:
+// the row is 15px tall between the frame at y=8 and the first rule at y=39,
+// so 6px above and below is all there is, while the horizontal pad only has
+// to stay clear of a WiFi label that takes no taps at all.
+constexpr int16_t moBtnHitPadX = 12, moBtnHitPadY = 6;
+constexpr int16_t moBtnHitX = moBtnX - moBtnHitPadX;              // 311
+constexpr int16_t moBtnHitW = moBtnW + 2 * moBtnHitPadX;          // 54
+constexpr int16_t moBtnHitY = moBtnY - moBtnHitPadY;              // 12
+constexpr int16_t moBtnHitH = moBtnH + 2 * moBtnHitPadY;          // 27
 // Footer: the order's reward at the left, the sync clock at the right.
 //
 // Deeper than the 18px it was: the reward is the row's headline now that the
@@ -562,11 +643,37 @@ constexpr int16_t ovlWingW = 14, ovlWingGap = 3;
 // lands a fixed 13px down, and an opaque-background row 17px below this one
 // would repaint over this one's descenders.
 //
-// Four lines of this column is ~160 characters and High Command writes longer,
-// so wrapText() ellipses. The order's title is not in here -- it is in the
-// objective card below, in full, which is where the reference puts the thing
-// the screen is actually announcing.
+// Four lines of this column is ~88 characters at FreeSans9pt and High Command
+// writes several times that -- the live order on 2026-09-02 was 121, and a
+// briefing that sets the scene runs past 400 -- so the block is a *window*
+// onto the briefing, not the whole of it. ovlBriefMax is how many lines are on
+// screen at once; ovlBriefLinesMax is how far the wrap runs before wrapText()
+// is allowed to ellipse, and the difference between them is paged through on a
+// timer. See drawOverlayBriefing().
+//
+// The window stayed at four rather than being squeezed to five. Everything
+// under it -- both section rules, the objective card, the reward row, the
+// closing line -- is placed off mo_new_reference.jpg, five lines only fit by
+// taking 7px out of that stack, and it would still be short by a factor of
+// three on a real briefing. Paging is what actually solves it; moving art-
+// derived geometry to win 22 characters is not.
+//
+// The order's title is not in here -- it is in the objective card below, in
+// full, which is where the reference puts the thing being announced.
 constexpr int16_t ovlBriefY = 62, ovlBriefLead = 19, ovlBriefMax = 4;
+// 24 lines is ~530 characters, comfortably past the longest briefing the game
+// has issued. Past that wrapText() ellipses, as it always did.
+constexpr int16_t ovlBriefLinesMax = 24;
+// How long each page of an over-long briefing holds before the next. Reading
+// four lines of this column is a couple of seconds; the extra is so a glance
+// that lands mid-page still gets the whole of it. The carousel's own dwell is
+// 7s and this is deliberately quicker -- a page here is half a thought, not a
+// whole screen.
+constexpr uint32_t ovlBriefPageMs = 4500;
+// The "2/5" page marker, right-aligned in the gap the block leaves above the
+// OBJECTIVE rule. Drawn only when there is more than one page, so a briefing
+// that fits is byte-for-byte the screen it always was.
+constexpr int16_t ovlBriefPipY = 138, ovlBriefPipH = 11, ovlBriefPipW = 40;
 // "=== OBJECTIVE ===" and "=== REWARD ===", the reference's section rules.
 constexpr int16_t ovlDivH = 18;
 constexpr int16_t ovlObjDivY = 150;

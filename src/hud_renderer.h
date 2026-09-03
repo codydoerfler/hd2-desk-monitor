@@ -88,8 +88,17 @@ class HUDRenderer {
   // beside it, the carousel pips, and the link state. `title` names the
   // screen; empty keeps the default SUPER EARTH strip. `tier`/`pages`/`page`
   // are skipped when zero, which is what the boot and setup screens want.
+  // `orderBtn` draws the reopen button at the row's right; false clears its
+  // box. The boot and setup screens leave it off -- there is no order to
+  // reopen before the first poll lands.
   void drawStatusHeader(const String &title = String(), int8_t tier = 0,
-                        uint8_t pages = 0, uint8_t page = 0);
+                        uint8_t pages = 0, uint8_t page = 0,
+                        bool orderBtn = false);
+  // The reopen button itself: the SEAF emblem sampled down to header height,
+  // in a bordered chip. `on` false clears the box instead. The only tap
+  // target on the panel outside the overlay -- main.cpp hit-tests against
+  // layout::moBtnHit*, which is this box plus a fingertip's slack.
+  void drawOrderButton(bool on);
   // Works out what that row should say for `m` at the current page and repaints
   // it when the answer changed. Called on every update(), not just on a full
   // body repaint: a carousel step within one Major Order repaints only the
@@ -201,12 +210,29 @@ class HUDRenderer {
   // did not fit. Only the overlay needs this — every other screen is built
   // from fields short enough to size by hand.
   int8_t wrapText(const String &s, int16_t maxW, int8_t maxLines, String *out);
+  // The announcement's briefing block at page _briefPage, and the tick that
+  // advances it. The block holds ovlBriefMax lines and a real briefing is
+  // routinely longer, so the text pages through it rather than being cut at
+  // the fourth line. `accent` tints the n/N marker. See the note on
+  // drawOverlayBriefing() for why this pages rather than scrolls or grows.
+  void drawOverlayBriefing(const MajorOrder &o, uint16_t accent);
+  void updateOverlayBriefing(const HudModel &m);
 
   // --- the Major Order card ---
   // One target's card, top to bottom. Repainted as a unit — both when the data
   // moves and when the carousel advances — because almost every row of it is
   // target-specific.
   void drawCard(const HudModel &m);
+  // The combined card: every target of a count-only order on one page, one row
+  // each, instead of a carousel slide per target. Taken when
+  // orderIsCombinedCount() holds -- see the note there for what qualifies.
+  // Laid out from mo_overhaul_reference.jpg: a flat band naming the subject
+  // and the order over the order's clock plate, then the target rows.
+  void drawCombinedCard(const HudModel &m);
+  // One target's row on that card: what it is counting and the figures, the
+  // target's own percentage right-aligned beside them, and a track under both.
+  // `capY` is the top of the caption row; the track hangs below it.
+  void drawCombinedRow(const HudModel &m, uint8_t taskIdx, int16_t capY);
   // A biome photograph scaled into an arbitrary rect. `scrimW` darkens the
   // plate from its left edge inward so overlaid text stays legible; 0 leaves
   // the artwork untouched. See tools/gen_biomes.py for why the plates are
@@ -290,6 +316,10 @@ class HUDRenderer {
   // geometry) is detected even when the underlying data (contentSignature)
   // didn't change — only which page is being looked at did.
   bool _lastCardMode = false;
+  // Whether the card on screen is the combined one. Set by drawCard() and read
+  // by drawCardClocks(), which puts the clock plate at a different corner and
+  // must not read a defence clock off a single target when several are shown.
+  bool _combined = false;
   String _headerSig;   // last-painted header row (type word, tier, pip row)
   String _contentSig;  // last-painted body signature
   String _targetSig;   // last-painted card signature
@@ -298,6 +328,12 @@ class HUDRenderer {
   String _footerSig;
   String _overlaySig;    // last-painted overlay; empty when none is up
   int8_t _wifiSig = -1;  // -1 = never drawn, 0 = down, 1 = up
+  // Which page of the announcement's briefing is showing, how many there are,
+  // and when the current one went up. Meaningless unless an announcement is on
+  // the panel; reset by drawOverlay() every time one is raised.
+  int8_t _briefPage = 0;
+  int8_t _briefPages = 1;
+  uint32_t _briefPageMs = 0;
 
   // Unified carousel: MO task cards first (if an order is active), then
   // campaign cards. Index into that combined sequence — see

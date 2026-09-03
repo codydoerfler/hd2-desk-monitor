@@ -344,6 +344,12 @@ static void playBootChime() {
 // A gesture that landed during the idle wait at the bottom of the previous
 // iteration, waiting to be acted on at the top of this one.
 static touch::Gesture pendingGesture = touch::kNone;
+// Whether the overlay currently up was raised by the header button rather than
+// by the poll loop. Dismissing a genuine announcement hands the carousel back
+// to the new order's first objective; dismissing a reopen must not, because
+// the reader was on some page when they reached for the button and expects to
+// be back on it.
+static bool overlayManual = false;
 
 // Spends `ms` polling the panel instead of sleeping through it.
 //
@@ -1048,12 +1054,40 @@ void loop() {
       model.overlay = kOverlayNone;
       // Hand back to the new order's first objective rather than to wherever
       // the carousel had got to before the announcement interrupted it.
-      if (wasNewOrder) hud.resetCarousel();
+      if (wasNewOrder && !overlayManual) hud.resetCarousel();
+      overlayManual = false;
     }
   } else if (gesture == touch::kSwipeLeft) {
     hud.advancePage(model, +1);
   } else if (gesture == touch::kSwipeRight) {
     hud.advancePage(model, -1);
+  } else if (gesture == touch::kTap && model.haveData && model.order.valid) {
+    // The reopen button in the header row -- the panel's first tap target, so
+    // this is the first place a gesture's coordinates have mattered. Everything
+    // before it acted on the gesture's kind alone.
+    //
+    // Hit-tested against layout::moBtnHit*, which is the drawn box grown by a
+    // fingertip's slack all round: the button is 30x15 and a resistive panel
+    // read through a four-point calibration is not accurate to fifteen pixels.
+    // The pad is safe to be generous with because nothing else on the screen
+    // takes a tap -- the cost of an over-wide target here is a reopen the user
+    // did not ask for, dismissed by touching the panel again.
+    int16_t tx = 0, ty = 0;
+    touch::lastTap(tx, ty);
+    const bool hit = tx >= layout::moBtnHitX &&
+                     tx < layout::moBtnHitX + layout::moBtnHitW &&
+                     ty >= layout::moBtnHitY &&
+                     ty < layout::moBtnHitY + layout::moBtnHitH;
+    if (hit) {
+      Serial.println("[overlay] order screen reopened by button");
+      model.overlay = kOverlayNewOrder;
+      model.overlaySubject = model.order;
+      overlayManual = true;
+      // Deliberately silent: overlaySoundPending is not armed. The alert clip
+      // is what makes an announcement an interruption, and it blocks the loop
+      // while it plays. Someone who pressed the button is already looking at
+      // the panel and asked for the screen -- this is a lookup, not news.
+    }
   }
 
   // --- overlays ------------------------------------------------------------
@@ -1068,6 +1102,7 @@ void loop() {
   if (model.overlay == kOverlayNone && overlayQueueLen > 0) {
     model.overlay = overlayQueue[0];
     model.overlaySubject = overlayQueueSubject[0];
+    overlayManual = false;
     overlayQueueLen--;
     for (uint8_t i = 0; i < overlayQueueLen; ++i) {
       overlayQueue[i] = overlayQueue[i + 1];
