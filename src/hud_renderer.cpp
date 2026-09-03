@@ -175,9 +175,11 @@ static constexpr int16_t kRewardBlockW = icons::medalW + footerIconGap + kReward
 static constexpr int16_t kHintX = cardX + kRewardBlockW;
 static constexpr int16_t kHintW = (contentR - syncBoxW) - kHintX;
 
-static String formatCount(uint32_t v) {
-  char digits[16];
-  snprintf(digits, sizeof(digits), "%lu", (unsigned long)v);
+// 64-bit because a kill goal has reached 1.25 billion and the API keeps
+// counting past it, so the running total can outgrow what the goal fits in.
+static String formatCount(uint64_t v) {
+  char digits[24];
+  snprintf(digits, sizeof(digits), "%llu", (unsigned long long)v);
   const int n = (int)strlen(digits);
   String out;
   out.reserve(n + n / 3);
@@ -205,6 +207,47 @@ static const OrderTask *activeTask(const HudModel &m, uint8_t idx) {
   return &m.order.tasks[idx];
 }
 
+// Whether this order is the shape the combined card exists for: every target
+// is count-style, and none of them names a planet the others do not. That is
+// the "galaxy-wide, several kill counters" order -- four numbers that belong
+// side by side, which the carousel used to spread over four full pages.
+//
+// Two tasks is the floor. Combining one task into a list of one would trade a
+// card built around a single objective for a row that says the same thing
+// smaller, and the per-task card is the better screen for that.
+//
+// The planet test is an equality -- every target points at the same index --
+// rather than a test for the absence of one, and that is deliberate.
+// The live order on 2026-09-02 (3038612729) carries a valueType-12 slot on
+// every task with the value 0 -- every unused slot in that payload is 0 -- so
+// hd2_api.cpp reads planetIndex 0, which is a real index (Super Earth). An
+// equality test does not have to decide whether that 0 means Super Earth or
+// means nothing: four tasks pointing at one index are not four planet-scoped
+// objectives either way. The 2026-08-15 order, which had three count tasks on
+// three *named* planets, fails it and keeps its page each -- which is right,
+// because each of those cards has a planet to draw.
+static bool orderIsCombinedCount(const MajorOrder &o) {
+  if (!o.valid || o.taskCount < 2) return false;
+  for (int i = 0; i < o.taskCount; i++) {
+    if (!o.tasks[i].valid || !taskIsCount(o.tasks[i])) return false;
+    if (o.tasks[i].planetIndex != o.tasks[0].planetIndex) return false;
+  }
+  return true;
+}
+
+// The mean of the targets' own percentages -- what the in-game screen prints
+// as its OVERALL PROGRESS, verified against the same live order the reference
+// screenshot was taken from (71/35/60/57 -> 56%). Not a weighted figure: the
+// order asks for all four and does not say one kill is worth more than
+// another, and weighting by goal would let the one target with a billion-wide
+// goal decide the whole readout.
+static float orderOverallPercent(const MajorOrder &o) {
+  if (o.taskCount <= 0) return 0.0f;
+  float sum = 0.0f;
+  for (int i = 0; i < o.taskCount; i++) sum += taskPercent(o.tasks[i]);
+  return sum / (float)o.taskCount;
+}
+
 // Pages in the unified carousel. An active Major Order owns the screen: High
 // Command's orders are the point of the device, and rotating away from them
 // to show a planet nobody was told to take buries the one thing that matters.
@@ -217,6 +260,11 @@ static const OrderTask *activeTask(const HudModel &m, uint8_t idx) {
 // says there is no order at all.
 static uint8_t orderPageCount(const HudModel &m) {
   if (!m.order.valid) return 0;
+  // The combined card is one page carrying every target, in place of the N
+  // pages those same targets would otherwise each take. Everything downstream
+  // -- the pip row, the swipe, the dwell timer -- follows this number, so
+  // saying 1 here is the whole of the paging change.
+  if (orderIsCombinedCount(m.order)) return 1;
   return m.order.taskCount > 0 ? (uint8_t)m.order.taskCount : 1;
 }
 
@@ -359,7 +407,42 @@ static String contentSignature(const HudModel &m) {
 // Everything the card draws, including which target it is. The two observation
 // timestamps stand in for the derived rates: they are what those are computed
 // from, and they move exactly when the rates do.
+// The combined card's dirty-check. It draws every target on one page, so the
+// per-task signature below -- which encodes exactly one of them -- would leave
+// the card frozen on its first paint while three of its four rows moved.
+static String combinedSignature(const HudModel &m) {
+  const MajorOrder &o = m.order;
+  String s;
+  s.reserve(160);
+  s = F("comb|");
+  s += o.title;
+  s += '|';
+  s += String(o.taskCount);
+  s += '|';
+  s += String((unsigned long)o.expiration);
+  for (int i = 0; i < o.taskCount; i++) {
+    const OrderTask &t = o.tasks[i];
+    s += '|';
+    s += String(t.taskType);
+    s += '@';
+    // Same 1/100th-of-a-percent resolution, and for the same reason, as the
+    // per-task signature: a billion-wide goal still moves several hundred of
+    // these steps between two five-minute polls.
+    s += String((int)(taskPercent(t) * 100.0f));
+    s += '@';
+    s += formatCompact(t.goal);
+    s += '@';
+    s += t.complete ? '1' : '0';
+    s += '@';
+    // The rate readout is drawn from this pair, so a poll that only produced a
+    // new rate still has to repaint.
+    s += String((unsigned long)m.history[i < kMaxOrderTasks ? i : 0].countAt);
+  }
+  return s;
+}
+
 static String targetSignature(const HudModel &m, uint8_t idx) {
+  if (orderIsCombinedCount(m.order)) return combinedSignature(m);
   const OrderTask *t = activeTask(m, idx);
   if (!t) return F("none");
   const PlanetInfo &p = t->planet;
@@ -528,6 +611,12 @@ void HUDRenderer::begin() {
 
 void HUDRenderer::invalidate() {
   _chromeDrawn = false;
+  // The overlay too: it is a screen like any other, and a caller asking for
+  // everything to be repainted while one is up meant it. Without this the
+  // signature survives and the announcement is left on the panel unredrawn --
+  // which the preview harness caught when two overlay scenes in a row shared
+  // an order id and the second inherited the first's briefing page.
+  _overlaySig = "";
   _headerSig = "";
   _contentSig = "";
   _targetSig = "";
@@ -805,6 +894,54 @@ int16_t HUDRenderer::drawLibcon(int16_t x, int16_t y, int16_t h, int8_t tier) {
   return x + libconW;
 }
 
+// The reopen button: the SEAF emblem, boxed down to header height.
+//
+// The emblem bitmap is 72x39 and the header row is 15 tall, so it is sampled
+// down by exactly 3 in both axes to 24x13 -- an integer factor, so every
+// destination pixel covers the same 3x3 source block and no row or column is
+// weighted differently from its neighbours. A source block counts as ink when
+// at least three of its nine pixels are set. Two was too eager: the emblem's
+// outline is a single pixel wide in places and a threshold of two smeared it
+// into a filled blob. Four dropped the eagle's wingtips entirely. Three keeps
+// the silhouette readable at a desk's distance, which is all this needs to
+// be -- it is a target to press, not artwork.
+//
+// Drawn pixel by pixel rather than by building a scaled bitmap: this is 312
+// destination pixels painted only when the header signature changes, and the
+// alternative is a second copy of the emblem in a flash budget that is at
+// 96%.
+void HUDRenderer::drawOrderButton(bool on) {
+  // Cleared either way -- the button comes and goes with the order, and the
+  // row is not otherwise repainted under it.
+  _tft.fillRect(moBtnX, moBtnY, moBtnW, moBtnH, theme::bg);
+  if (!on) return;
+
+  _tft.drawRect(moBtnX, moBtnY, moBtnW, moBtnH, theme::goldDim);
+
+  const int16_t scale = 3;
+  const int16_t dw = icons::emblemLargeW / scale;  // 24
+  const int16_t dh = icons::emblemLargeH / scale;  // 13
+  const int16_t ox = moBtnX + (moBtnW - dw) / 2;
+  const int16_t oy = moBtnY + (moBtnH - dh) / 2;
+  const int16_t stride = (icons::emblemLargeW + 7) / 8;
+
+  for (int16_t dy = 0; dy < dh; dy++) {
+    for (int16_t dx = 0; dx < dw; dx++) {
+      uint8_t hits = 0;
+      for (int16_t sy = 0; sy < scale; sy++) {
+        const int16_t srcY = dy * scale + sy;
+        for (int16_t sx = 0; sx < scale; sx++) {
+          const int16_t srcX = dx * scale + sx;
+          const uint8_t byte =
+              pgm_read_byte(&icons::emblemLarge[srcY * stride + (srcX >> 3)]);
+          if (byte & (0x80 >> (srcX & 7))) hits++;
+        }
+      }
+      if (hits >= 3) _tft.drawPixel(ox + dx, oy + dy, theme::gold);
+    }
+  }
+}
+
 // The header row, shared by every screen: what kind of objective this is, the
 // LIBCON chip beside it, the carousel pips, and (from drawWifi) the link
 // state at the right. The chip moved up here from the footer when the cards
@@ -812,7 +949,7 @@ int16_t HUDRenderer::drawLibcon(int16_t x, int16_t y, int16_t h, int8_t tier) {
 // sync line no longer had the clearance, and the reading belongs next to the
 // objective type it qualifies anyway.
 void HUDRenderer::drawStatusHeader(const String &title, int8_t tier, uint8_t pages,
-                                   uint8_t page) {
+                                   uint8_t page, bool orderBtn) {
   const String label = title.length() ? title : String(F("SUPER EARTH"));
 
   _tft.setFreeFont(FONT_LABEL);
@@ -824,8 +961,11 @@ void HUDRenderer::drawStatusHeader(const String &title, int8_t tier, uint8_t pag
   // the previous frame's copies to the right of the new ones. A fixed 200 was
   // wide enough for the label's own tail and nothing else, which was invisible
   // while this row was only ever painted onto a freshly-cleared screen.
-  textBox(padX, headerY, contentW - wifiSlotW, headerH, theme::bg, FONT_LABEL,
+  // Cleared up to the button's left edge rather than the WiFi slot's, so the
+  // clear does not wipe the button it is drawn beside.
+  textBox(padX, headerY, moBtnX - padX, headerH, theme::bg, FONT_LABEL,
           theme::gold, ML_DATUM, label);
+  drawOrderButton(orderBtn);
 
   int16_t x = padX + labelW + libconGapX;
   if (tier >= 1 && tier <= 5) x = drawLibcon(x, headerY, headerH, tier);
@@ -837,9 +977,18 @@ void HUDRenderer::drawStatusHeader(const String &title, int8_t tier, uint8_t pag
   // pixels smaller all round, rather than same-size filled-vs-hollow: at this
   // size the fill alone was a difference you had to go looking for from a desk
   // away, and the one thing this row exists to say is which page you are on.
+  //
+  // Right-aligned on pipRowR rather than packed after the chip -- see the note
+  // there. `x` past the chip is still what bounds them on the left: a row that
+  // would reach back into the chip is clamped off it instead of overprinting
+  // it, which at every page count this carousel can reach does not happen.
   if (pages > 1) {
-    x += pipRowGap;
-    for (uint8_t i = 0; i < pages; i++, x += pipS + pipGap) {
+    const int16_t rowW = pages * pipS + (pages - 1) * pipGap;
+    const int16_t left = x + pipRowGap;
+    x = pipRowR - rowW;
+    if (x < left) x = left;
+    for (uint8_t i = 0; i < pages && x + pipS <= pipRowR;
+         i++, x += pipS + pipGap) {
       if (i == page) {
         _tft.fillRect(x, headerY + (headerH - pipS) / 2, pipS, pipS, theme::gold);
       } else {
@@ -872,7 +1021,18 @@ void HUDRenderer::drawHeader(const HudModel &m) {
   // the plain strip.
   String type;
   if (m.haveData) {
-    if (cardPage) {
+    if (cardPage && orderIsCombinedCount(m.order)) {
+      // One page, several targets. They share a word only when they are all
+      // counting the same kind of thing; a mixed set gets the plural, because
+      // naming the first task's type over a card carrying three others would
+      // be captioning the page by whichever objective happened to be listed
+      // first.
+      bool same = true;
+      for (int i = 1; i < m.order.taskCount; i++)
+        if (m.order.tasks[i].taskType != m.order.tasks[0].taskType) same = false;
+      type = same ? countWords(m.order.tasks[0].taskType).header
+                  : String(F("OBJECTIVES"));
+    } else if (cardPage) {
       const OrderTask *t = activeTask(m, _pageIdx);
       const bool defending =
           t && ((t->taskType == kTaskTypeDefend) || t->planet.event.active);
@@ -888,12 +1048,14 @@ void HUDRenderer::drawHeader(const HudModel &m) {
   }
 
   const int8_t tier = m.haveData ? libconTier(m) : 0;
-  const String sig =
-      type + "|" + String((int)tier) + "|" + String((int)pages) + "|" + String((int)_pageIdx);
+  // The reopen button is only meaningful while there is an order to reopen.
+  const bool btn = m.haveData && m.order.valid;
+  const String sig = type + "|" + String((int)tier) + "|" + String((int)pages) +
+                     "|" + String((int)_pageIdx) + "|" + (btn ? "1" : "0");
   if (sig == _headerSig) return;
   _headerSig = sig;
 
-  drawStatusHeader(type, tier, pages, _pageIdx);
+  drawStatusHeader(type, tier, pages, _pageIdx, btn);
 }
 
 void HUDRenderer::drawWifi(bool up) {
@@ -1093,8 +1255,165 @@ void HUDRenderer::drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRat
   }
 }
 
+// One objective's row on the combined card: what it is counting and how far
+// in, then the track, with the task's own percentage in its own column at the
+// right.
+//
+// That column is where item 3 of this change lands. The percentage used to
+// ride the end of the caption row in the 6x8 face, sharing a box with a
+// per-hour rate, which put the one figure the row exists for in the smallest
+// type on the card and at a different x on every row. Here it is fixed-width,
+// right-aligned on the card's own edge and set in FONT_LABEL, so four rows
+// stack into a column you can read down.
+//
+// It is the task's own progress against its own goal -- taskPercent() -- and
+// nothing else. The in-game screen labels this "REWARD IMPACT %", which reads
+// as a share of the payout; it is not. There is no per-task reward split in
+// the assignment payload (checked live: `reward`/`rewards` carry one
+// order-level amount), and the game's own figures are these percentages to the
+// digit. So the caption says PROGRESS, which is what the number is.
+void HUDRenderer::drawCombinedRow(const HudModel &m, uint8_t taskIdx,
+                                  int16_t capY) {
+  const OrderTask &t = m.order.tasks[taskIdx];
+  const CountWords w = countWords(t.taskType);
+  const float pct = taskPercent(t);
+  const uint16_t tint = t.complete ? theme::green : theme::blue;
+
+  const int16_t capW = cardW - moCombPctW - moCombPctGap;
+
+  // Full digits where they fit, because this card has the width the per-task
+  // caption did not and "17,842,731 / 25,000,000" is the figure the objective
+  // is actually posted as. formatCompact is the fallback, not the default:
+  // goals have reached 1.25 billion and progress is allowed past the goal, so
+  // the pair can outgrow the box.
+  String caption = String(w.track) + F("  ") + formatCount(t.progress) +
+                   F(" / ") + formatCount(t.goal);
+  _tft.setFreeFont(nullptr);  // the built-in 6x8 face, which the caption is set in
+  if (_tft.textWidth(caption.c_str()) > capW) {
+    caption = String(w.track) + F("  ") + formatCompact(t.progress) + F(" / ") +
+              formatCompact(t.goal);
+  }
+
+  // nullptr font == the built-in 6x8 GLCD face, as everywhere else a caption
+  // has to sit in a row this tight.
+  textBox(cardX, capY, capW, moCombCapH, theme::bg, nullptr, theme::grey,
+          ML_DATUM, caption);
+  char pctStr[12];
+  snprintf(pctStr, sizeof(pctStr), "%.1f%%", pct);
+  textBox(cardX + capW + moCombPctGap, capY, moCombPctW, moCombCapH, theme::bg,
+          FONT_LABEL, t.complete ? theme::green : theme::gold, MR_DATUM, pctStr);
+
+  drawTrack(capY + moCombBarDy, moCombBarH, pct, tint);
+}
+
+// Every target of a galaxy-wide count order on one page, in place of the one
+// full page each they used to take. See orderIsCombinedCount() for when this
+// is chosen and the moComb* constants in config.h for the grid.
+//
+// Two things the per-task card has are deliberately not here. There is no
+// biome plate, because there is no planet: the band is flat, which is also
+// what lets drawCardClocks() repaint the countdown against it without the
+// plate having to protect a photograph. And there is no stat strip, because
+// SHARE/DIVERS/PUSH/REGEN are all planet readings and every one of them would
+// print "--" -- that row's 32px is what the objective rows are drawn in.
+void HUDRenderer::drawCombinedCard(const HudModel &m) {
+  const MajorOrder &o = m.order;
+  const uint8_t n = (uint8_t)(o.taskCount > kMaxOrderTasks ? kMaxOrderTasks
+                                                           : o.taskCount);
+
+  _tft.fillRect(cardX, artY, cardW, moCombRowsBot - artY, theme::bg);
+
+  // --- the band ------------------------------------------------------------
+  _tft.drawRect(cardX, artY, cardW, moCombBandH, theme::cardEdge);
+  const int16_t tx = cardX + artPad;
+  // The plate's left edge is what the two text rows have to stop short of.
+  const int16_t plateL = cardX + cardW - plateInset - plateW;
+
+  // The subject. A count target that names no planet of its own is galaxy-wide
+  // and says so -- the same word the per-task card falls back to. Where the
+  // shared index does resolve to a planet, that planet's name is the honest
+  // answer instead. Index 0 is excluded: it is what an unset valueType-12 slot
+  // reads as on this payload (see orderIsCombinedCount), and claiming an order
+  // is scoped to Super Earth on the strength of a zero would be reading a
+  // default as a fact.
+  const PlanetInfo &p0 = o.tasks[0].planet;
+  String subject = (o.tasks[0].planetIndex > 0 && p0.valid)
+                       ? upper(p0.name)
+                       : String(F("GALAXY-WIDE"));
+  const GFXfont *subjFont = FONT_HEADLINE;
+  _tft.setFreeFont(subjFont);
+  const int16_t subjW = plateL - 10 - tx;
+  if (_tft.textWidth(subject.c_str()) > subjW) {
+    subjFont = FONT_HEADLINE_SM;
+    _tft.setFreeFont(subjFont);
+  }
+  while (subject.length() > 1 && _tft.textWidth(subject.c_str()) > subjW) {
+    subject.remove(subject.length() - 1);
+  }
+  textBox(tx, artY + moCombNameDy, subjW, moCombNameH, theme::bg, subjFont,
+          theme::text, ML_DATUM, subject);
+
+  // The order's own name at the left of the foot row, and the overall figure
+  // right-aligned on the card's edge -- the row runs the full width because
+  // the clock plate is up at the band's top corner, not down in it.
+  //
+  // The overall figure is measured, not boxed at a guessed width: the number
+  // is set in FONT_VALUE and its label in FONT_LABEL, so a fixed box sized for
+  // one is wrong for the pair, and the first attempt at 132px silently ate the
+  // digits off the front of "100.0% OVERALL". Both are laid out from the
+  // card's right edge inward and the title gets whatever is left.
+  char pctStr[12];
+  snprintf(pctStr, sizeof(pctStr), "%.1f%%", orderOverallPercent(o));
+  const char *ovLabel = "OVERALL";
+  _tft.setFreeFont(FONT_LABEL);
+  const int16_t ovLabW = _tft.textWidth(ovLabel);
+  _tft.setFreeFont(FONT_VALUE);
+  const int16_t ovPctW = _tft.textWidth(pctStr);
+  const int16_t ovW = ovPctW + moCombPctGap + ovLabW;
+  const int16_t ovX = cardX + cardW - artPad - ovW;
+
+  String title = upper(o.title.length() ? o.title : String(F("MAJOR ORDER")));
+  const int16_t titleW = ovX - 8 - tx;
+  _tft.setFreeFont(FONT_LABEL);
+  while (title.length() > 1 && _tft.textWidth(title.c_str()) > titleW) {
+    title.remove(title.length() - 1);
+  }
+  textBox(tx, artY + moCombFootDy, titleW, moCombFootH, theme::bg, FONT_LABEL,
+          theme::gold, ML_DATUM, title);
+
+  // The mean of the rows below it, which is what the in-game screen prints and
+  // what orderOverallPercent() is measured against. Labelled OVERALL so it
+  // cannot be read as a fifth objective.
+  textBox(ovX, artY + moCombFootDy, ovPctW, moCombFootH, theme::bg, FONT_VALUE,
+          theme::gold, ML_DATUM, pctStr);
+  textBox(ovX + ovPctW + moCombPctGap, artY + moCombFootDy, ovLabW, moCombFootH,
+          theme::bg, FONT_LABEL, theme::grey, ML_DATUM, ovLabel);
+
+  // --- the objective rows --------------------------------------------------
+  // Pitch capped and the block centred, so two targets sit as a pair in the
+  // middle of the space rather than stretched over a grid built for four.
+  if (n == 0) {
+    textBox(cardX, moCombRowY + 40, cardW, 34, theme::bg, FONT_VALUE, theme::grey,
+            MC_DATUM, F("ORDER HAS NO TARGETS"));
+    _clockSig = "";
+    return;
+  }
+  const int16_t availH = moCombRowsBot - moCombRowY;
+  int16_t pitch = availH / n;
+  if (pitch > moCombPitchMax) pitch = moCombPitchMax;
+  const int16_t top = moCombRowY + (availH - pitch * n) / 2;
+  for (uint8_t i = 0; i < n; i++) drawCombinedRow(m, i, top + i * pitch);
+
+  _clockSig = "";  // the band went down with the rest of the card
+}
+
 void HUDRenderer::drawCard(const HudModel &m) {
   _targetSig = targetSignature(m, _pageIdx);
+  _combined = orderIsCombinedCount(m.order);
+  if (_combined) {
+    drawCombinedCard(m);
+    return;
+  }
 
   const OrderTask *t = activeTask(m, _pageIdx);
   if (!t) {
@@ -1251,7 +1570,9 @@ void HUDRenderer::drawCardClocks(const HudModel &m, time_t nowUtc) {
   // there is.
   String label = F("ORDER ENDS");
   int64_t until = (int64_t)m.order.expiration;
-  if (t && t->planet.event.active && t->planet.event.endTime > 0) {
+  // A combined card is showing every target at once, so there is no one
+  // target whose defence clock could stand in for the order's.
+  if (!_combined && t && t->planet.event.active && t->planet.event.endTime > 0) {
     label = F("VICTORY IN");
     until = (int64_t)t->planet.event.endTime;
   }
@@ -1265,7 +1586,13 @@ void HUDRenderer::drawCardClocks(const HudModel &m, time_t nowUtc) {
 
   const int16_t plateH = plateLabelH + plateClockH + 2 * platePadY;
   const int16_t px = cardX + cardW - plateInset - plateW;
-  const int16_t py = artY + artOrderH - plateInset - plateH;
+  // The combined card's band is flat, so the plate is free to sit at its top
+  // corner instead of its foot -- which is what leaves the row underneath it
+  // running the full width for the order's title and the overall figure. On
+  // the per-task card it stays where the artwork wants it, bottom-right, out
+  // of the identity set over the plate's left.
+  const int16_t py = _combined ? artY + moCombPlateDy
+                               : artY + artOrderH - plateInset - plateH;
 
   _tft.fillRect(px, py, plateW, plateH, theme::bg);
   _tft.drawRect(px, py, plateW, plateH, theme::cardEdge);
@@ -1884,6 +2211,86 @@ void HUDRenderer::drawOverlayDivider(int16_t y, const String &label, uint16_t ac
   drawWingBars(cx + half + 10, my, 18, +1, accent);
 }
 
+// The announcement's briefing block, at whatever page _briefPage is on.
+//
+// The block was four lines and stopped there: wrapText() ellipsed the fifth
+// and everything after it, so a briefing longer than about 88 characters was
+// simply unreadable on the device. Real ones run two to five hundred -- High
+// Command writes in paragraphs -- and the one live when this was found was
+// already over the line. The text was never the problem; hd2_api.cpp parses
+// the field in full and always has.
+//
+// Growing the window was the first thing tried and does not get there. The
+// space between the header rule and the OBJECTIVE divider is 88 pixels, the
+// leading is 19, and the geometry either side of it comes off the reference:
+// a fifth line means finding seven pixels by tightening the leading or moving
+// a divider, and buys 25% more text for a briefing that can need five times
+// as much. So the window stays the size the reference drew it and the text
+// moves through it instead.
+//
+// Paged rather than scrolled by the pixel. A smooth scroll would mean
+// repainting this block on a frame clock, and the panel is driven over SPI by
+// a loop that also polls an HTTP API -- the tearing would be worse than the
+// problem. Four lines held for ovlBriefPageMs, then the next four, is legible
+// and costs one repaint every four and a half seconds.
+//
+// A briefing that fits in one page is drawn exactly as it was before this
+// change: same wrap, same lines, and no marker row, because `pages` is 1.
+void HUDRenderer::drawOverlayBriefing(const MajorOrder &o, uint16_t accent) {
+  // Wrapped to the narrowest row it spans rather than to its own: the column
+  // leans in on the way down, and a first line set to the width available at
+  // its own height would overhang the divider by the time it is a fourth
+  // line.
+  const int16_t briefW = overlayTextR(ovlBriefY + ovlBriefMax * ovlBriefLead) - ovlPadX;
+
+  String lines[ovlBriefLinesMax];
+  _tft.setFreeFont(FONT_BODY);
+  const int8_t n = wrapText(o.briefing, briefW, ovlBriefLinesMax, lines);
+
+  _briefPages = (int8_t)((n + ovlBriefMax - 1) / ovlBriefMax);
+  if (_briefPages < 1) _briefPages = 1;
+  if (_briefPage >= _briefPages) _briefPage = 0;
+
+  const int8_t first = (int8_t)(_briefPage * ovlBriefMax);
+  int16_t y = ovlBriefY;
+  for (int8_t i = 0; i < ovlBriefMax; ++i) {
+    const int8_t src = (int8_t)(first + i);
+    // Past the end of the text: the box is still painted, because the page
+    // before it may have filled this row and nothing else clears it.
+    textBox(ovlPadX, y, briefW, ovlBriefLead, theme::bg, FONT_BODY, theme::text,
+            TL_DATUM, src < n ? lines[src] : String());
+    y += ovlBriefLead;
+  }
+
+  // The marker, and only when there is more than one page -- on a briefing
+  // that fits, "1/1" would be noise, and this row is inside the reference's
+  // clearance between the block and the OBJECTIVE divider.
+  const int16_t pipW = overlayTextR(ovlBriefPipY + ovlBriefPipH) - ovlPadX;
+  if (_briefPages > 1) {
+    char mark[12];
+    snprintf(mark, sizeof(mark), "%d/%d", (int)_briefPage + 1, (int)_briefPages);
+    textBox(ovlPadX, ovlBriefPipY, pipW, ovlBriefPipH, theme::bg, nullptr, accent,
+            ML_DATUM, mark);
+  } else {
+    _tft.fillRect(ovlPadX, ovlBriefPipY, pipW, ovlBriefPipH, theme::bg);
+  }
+}
+
+// Advances that block when its dwell is up. Called every update() while an
+// announcement is on the panel; a no-op on the verdicts, which carry no
+// briefing, and on any briefing that fits in one page.
+void HUDRenderer::updateOverlayBriefing(const HudModel &m) {
+  if (m.overlay != kOverlayNewOrder || _briefPages <= 1) return;
+  const uint32_t nowMs = millis();
+  if ((uint32_t)(nowMs - _briefPageMs) < ovlBriefPageMs) return;
+  _briefPageMs = nowMs;
+  _briefPage = (int8_t)((_briefPage + 1) % _briefPages);
+  // Only the briefing block and its marker are repainted. The art plate and
+  // the panel's angled edge are not touched -- redrawing the overlay whole to
+  // turn a page would flash the photograph every four seconds.
+  drawOverlayBriefing(m.overlaySubject, theme::gold);
+}
+
 void HUDRenderer::drawOverlay(const HudModel &m, time_t nowUtc) {
   (void)nowUtc;
   // The bulletin is a different kind of thing wearing the same hat -- a
@@ -1929,21 +2336,11 @@ void HUDRenderer::drawOverlay(const HudModel &m, time_t nowUtc) {
     drawHazardBar(1, 1, ovlStripeW, screenH - 2, dim);
     drawOverlayHeader(m.overlay, accent, "NEW MAJOR ORDER");
 
-    // The briefing, in the reference's prose block and, like it, four lines.
-    // Wrapped to the narrowest row it spans rather than to its own: the column
-    // leans in on the way down, and a first line set to the width available at
-    // its own height would overhang the divider by the time it is a fourth
-    // line.
-    const int16_t briefW = overlayTextR(ovlBriefY + ovlBriefMax * ovlBriefLead) - ovlPadX;
-    String lines[ovlBriefMax];
-    _tft.setFreeFont(FONT_BODY);
-    const int8_t n = wrapText(o.briefing, briefW, ovlBriefMax, lines);
-    int16_t y = ovlBriefY;
-    for (int8_t i = 0; i < n; ++i) {
-      textBox(ovlPadX, y, briefW, ovlBriefLead, theme::bg, FONT_BODY, theme::text,
-              TL_DATUM, lines[i]);
-      y += ovlBriefLead;
-    }
+    // The briefing. Four lines at a time, but no longer only the first four --
+    // see drawOverlayBriefing().
+    _briefPage = 0;
+    _briefPageMs = millis();
+    drawOverlayBriefing(o, accent);
 
     // --- the objective card ------------------------------------------------
     // The order's own title, which is the thing being announced -- the
@@ -2157,6 +2554,10 @@ void HUDRenderer::update(const HudModel &m, time_t nowUtc) {
     if (sig != _overlaySig) {
       _overlaySig = sig;
       drawOverlay(m, nowUtc);
+    } else {
+      // Static except for the briefing, which pages itself when it is longer
+      // than the block it is drawn in.
+      updateOverlayBriefing(m);
     }
     return;
   }

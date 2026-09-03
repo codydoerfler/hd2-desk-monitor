@@ -389,8 +389,24 @@ opening a second one would mean two drivers taking turns on the same three
 pins with nothing arbitrating them.
 
 **Swipe left/right** pages the carousel. **Tap** dismisses an
-[event screen](#event-screens). Nothing else is bound; there are no on-screen
-controls to hit.
+[event screen](#event-screens), or — on the HUD, with a live order — presses
+the **Major Order button** in the header row.
+
+That button is the panel's only on-screen control, and the only place a
+gesture's *coordinates* matter: everything else acts on the gesture's kind
+alone. It is hit-tested against `layout::moBtnHit*`, which is the drawn 30×15
+chip grown to 54×27 — a resistive panel read through a four-point calibration
+is not accurate to fifteen pixels, and the pad is safe to be generous with
+because nothing else on the screen takes a tap. The worst an over-wide target
+can do is open a screen you did not ask for, which the next touch closes.
+
+Pressing it reopens the current order's `NEW MAJOR ORDER` screen: the same
+overlay, the same data, no special-cased copy. Deliberately **silent** — the
+alert clip is what makes an announcement an interruption and it blocks the
+loop while it plays, and someone who pressed a button is already looking at the
+panel. It is a lookup, not news. Dismissing a reopen also leaves the carousel
+where it was, rather than resetting it to the order's first objective the way
+dismissing a real announcement does.
 
 ### Why this is not `TFT_eSPI::getTouch()`
 
@@ -625,7 +641,7 @@ screen as it advances:
 
 | Band | Contents |
 |---|---|
-| header | objective type, the LIBCON chip, carousel pips, link state |
+| header | objective type, the LIBCON chip, carousel pips, the Major Order button, link state |
 | art | the biome plate, with the planet's name, sector and headline stat set over it, the faction mark on a dark disc top-right, and (order cards only) the order's name and a countdown plate |
 | bars | one track for a liberation, two for a defence — each captioned with what it measures, its value and its measured rate |
 | strip | on a planet objective, four values: diver share, divers present, the players' push, the enemy's regen. On a count objective — kills, extractions, operations — the last two are structurally empty, so the row runs three wide and ends on a projected ETA instead |
@@ -650,6 +666,43 @@ it. The plate is two stacked rows (what the clock counts down to, then the
 clock) because the one-line form, `VICTORY IN 5h 41m`, is nearly twice as wide
 and reaches back across the art into the headline beside it.
 
+### The combined count card
+
+An order whose targets are **all count-style and none tied to a planet of its
+own** — the galaxy-wide "kill N of each faction" shape — does not get a page
+per target. It gets one card carrying all of them:
+
+![combined count card](docs/preview_combined.png)
+
+A flat band names the subject (the shared planet if there is one, otherwise
+`GALAXY-WIDE`), the order, and the mean of the rows below it, with the
+countdown plate at its top corner instead of its foot. Then one row per
+target: what it is counting, `current / goal` at full digits, that target's own
+percentage in a fixed column at the right, and its track underneath.
+
+Four full-page slides for four kill counts meant waiting 21 s to see the state
+of an order you can read in one glance, and the per-target percentage sat at
+the tail of a caption row in 6×8 type — the smallest thing on the card, at a
+different x on every page. Both are fixed by the same layout.
+
+The percentage is `taskPercent()`: that target's progress against that
+target's goal. The in-game screen labels the same column "REWARD IMPACT %",
+which reads as a share of the payout, and it is not one — the assignment
+payload carries a single order-level `reward`, with no per-task split. The
+figures the game prints are these percentages to the digit, so the card prints
+them and calls them progress.
+
+**This does not apply to liberation or defence targets.** Those are tied to a
+planet with artwork, a sector, a diver count and a push rate, all of which need
+the page they already have. The gate is `orderIsCombinedCount()` in
+`src/hud_renderer.cpp`: every target valid, count-style, and pointing at the
+same planet slot.
+
+The per-task count-progress floor still applies inside the card, per row — a
+completed target whose `progress` the API later resets to 0 reads 100 %, not
+0.0 %, exactly as it does on the per-task card. `docs/preview_combineddone.png`
+is that case.
+
 ### Carousel
 
 Pages advance every 7 s (`kCarouselCycleMs` in `src/hud_renderer.cpp`). An
@@ -657,7 +710,13 @@ active Major Order **owns the screen** — its targets are the only pages, and
 the campaigns feed is not even fetched. High Command's orders are the point of
 the device, and rotating away from them to show a planet nobody was told to
 take buries the one thing that matters. With no order, the five busiest
-campaigns become the carousel instead.
+campaigns become the carousel instead. A combined count order contributes one
+page rather than one per target, so its whole carousel is that single card.
+
+The pips are **right-aligned** on a fixed edge (`pipRowR`) rather than packed
+after the type word. They used to follow it, which meant a long word giving way
+to a short one slid the whole row left — and left no room at all for the Major
+Order button once that word was `ERADICATION` and the chip was beside it.
 
 Swiping left or right pages by hand, wrapping at both ends. The 7 s timer keeps
 running underneath and any swipe restarts it: touch is an accelerator, not a
@@ -674,7 +733,7 @@ are acknowledged, and are the only screens on the device with no chrome.
 
 | | |
 |---|---|
-| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and as much of High Command's briefing as fits in four lines, under the winged globe. Raised when the assignment id changes, and also once per boot for whichever order is already live (see below). Dismissing it hands back to the carousel on that order's *first* objective. |
+| ![new order](docs/preview_neworder.png) | **NEW MAJOR ORDER** — the order's name and High Command's briefing in full, four lines at a time, under the winged globe. Raised when the assignment id changes, and also once per boot for whichever order is already live (see below). Dismissing it hands back to the carousel on that order's *first* objective — unless it was reopened by hand, in which case it hands back to the page you were on. |
 | ![success](docs/preview_success.png) | **MAJOR ORDER SUCCESSFUL** — every task was done at the last observation. Green chrome and a lit rank of stars: from across a room the colour has already said it before any of the words have. |
 | ![failure](docs/preview_failure.png) | **MAJOR ORDER FAILED** — the order ended incomplete, or its deadline passed with tasks outstanding. Red chrome, the sky gone to smoke, the flag in rags. The objective count is here because "3/4 objectives met" is a materially different evening from "0/4", and the stars light to the same fraction. |
 
@@ -744,13 +803,25 @@ be asked afterwards why its screen was showing an order.
 
 **Dismissing.** A tap is the intended gesture; any swipe works too, since a
 screen that has taken over the panel refusing a gesture just reads as broken.
-The **non-touch fallback** is a timeout of one poll interval
-(`kOverlayFallbackMs`, so 5 minutes by default): a panel that has stopped
-reading must not be able to strand the HUD on a verdict forever. That is the
-"dismiss on the next poll" behaviour arrived at by the clock rather than by the
-network, so it still holds when the network is what died. The screens say
-`TOUCH TO DISMISS` rather than naming the timer, but nothing is stuck if
-nobody touches it.
+There is no fallback timer: an announcement holds the panel until it is
+acknowledged, because nobody is necessarily at the desk when High Command
+issues one and a screen that cleared itself on a clock would clear itself
+unseen. That is the one failure this screen exists to avoid.
+
+**The briefing pages itself.** The block holds four lines — about 88
+characters at 9 pt in a 223 px column — and real briefings run two to five
+hundred. It used to stop at the fourth line and ellipse the rest, which looks
+like a finished sentence unless you know the text; the field was always parsed
+in full, so this was only ever a rendering cap. Growing the window does not
+reach: the space between the header rule and the `OBJECTIVE` divider is 88 px
+at a 19 px lead, so a fifth line means taking 7 px out of geometry that comes
+off the reference art, for 25 % more text on a screen that can need five times
+as much. So the window stays and the text moves through it — four lines held
+for `ovlBriefPageMs` (4.5 s), then the next four, with an `n/N` marker under
+the block. Paged rather than scrolled: a smooth scroll means repainting on a
+frame clock over a shared SPI bus, and the tearing would be worse than the
+problem. A briefing that fits one page draws exactly as it did before, marker
+included — there isn't one, because `pages` is 1.
 
 If two orders turn over in one poll — one ends and its replacement arrives,
 which is the ordinary case — both screens are shown, in that order, each with
@@ -866,9 +937,9 @@ python3 tools/check_layout.py   # asserts every HUD string fits its box
 ```
 
 Scenes are `boot`, `touchprompt`, `touchsuccess`, `defense`, `invasion`,
-`liberation`, `libdone`, `campaign`, `count`, `countreset`, `extraction`,
-`idle`, `stale`, `uncalibrated`, `neworder`, `success`, `failure` and
-`carousel`.
+`liberation`, `libdone`, `campaign`, `count`, `countreset`, `combined`,
+`combineddone`, `extraction`, `idle`, `stale`, `uncalibrated`, `neworder`,
+`brieflong`, `success`, `failure` and `carousel`.
 
 `countreset` is the count card immediately after the community API resets a
 completed task's `progress` to 0 — it drives `applyCountProgressFloor()` over
@@ -882,6 +953,23 @@ which the health-derived liberation figure reads as 0.0% taken. The task's own
 `progress`/`goal` still say 1/1, so `taskLiberation()` shows 100.0% LIBERATED
 and freezes the %/h rather than diffing the corrected figure against a raw
 health sample.
+
+`combined` is the galaxy-wide count order on one card, at the live figures of
+order 3038612729. Its four percentages are deliberately spread (95.6 / 47.8 /
+22.2 / 4.2) so the shot shows a full track, two partials and a nearly-empty
+one — a set where every bar sat at the same fill would not show whether the
+tracks are driven per row. `combineddone` is the same card with its leading
+target finished and then reset upstream, i.e. `countreset`'s case inside the
+combined layout: combining the rows must not bypass the per-task floor.
+
+`brieflong` is the announcement with a briefing at the long end of what High
+Command actually writes — 512 characters against the ~88 the block holds. It
+writes three files rather than one (`brieflong1`, `brieflong3`, `brieflong6`):
+first page, middle page, and specifically the **last**, because a shot that
+stopped short of the tail would prove no more than the old four-line block did.
+The pages are reached by winding the preview clock forward and calling
+`update()` again — the same path the device takes, not a direct call into the
+draw routine.
 
 `success` is the Major Order verdict overlay and `touchsuccess` is the touch
 calibration confirmation — unrelated screens with confusable names.

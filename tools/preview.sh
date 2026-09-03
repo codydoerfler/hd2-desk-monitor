@@ -11,8 +11,9 @@
 #      ./tools/preview.sh defense    # just one
 #
 #  Scenes: boot, touchprompt, touchsuccess, defense, invasion, liberation,
-#          libdone, campaign, count, countreset, extraction, idle, stale,
-#          uncalibrated, neworder, success, failure, carousel.
+#          libdone, campaign, count, countreset, combined, combineddone,
+#          extraction, idle, stale, uncalibrated, neworder, brieflong,
+#          success, failure, carousel.
 #
 #  `countreset` is the count card after the community API resets a completed
 #  task's progress to 0 — it drives applyCountProgressFloor() over two polls,
@@ -25,6 +26,14 @@
 #
 #  `success` is the Major Order verdict overlay; `touchsuccess` is the touch
 #  calibration confirmation. Unrelated screens, easily confused by name.
+#
+#  `combined` is a galaxy-wide count order collapsed onto one card, and
+#  `combineddone` is that card after the same upstream reset `countreset`
+#  covers -- the per-task floor still applies inside the combined layout.
+#
+#  `brieflong` writes three files (brieflong1/3/6): a 512-character briefing at
+#  its first, middle and last page, so the paging is shot against text that
+#  genuinely does not fit rather than one that happens to.
 #
 #  `carousel` is the odd one out: it is shot after a page advance rather than
 #  onto a cleared screen, so it covers the incremental repaint path the device
