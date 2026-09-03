@@ -72,6 +72,38 @@ IconRef hazardIcon(HazardKind k) {
   }
 }
 
+// The mark for one objective row of the combined count card, by the row's
+// position in the order.
+//
+// Position is a stand-in, and a known-wrong one the moment the orders change
+// shape. What a row wants is the mark for the species it is counting, and that
+// is not in the payload we parse or in any mapping this project has: an
+// eradicate task carries `type: 3` and a goal, and hd2_api.cpp pulls
+// planetIndex and goal out of `values` because those are the two slots the
+// `valueTypes` array names. Checked live against /api/v1/assignments, all four
+// tasks of the order this card was built for are `type: 3` and differ only in
+// progress, goal, and one untagged number in `values` -- 1371180916, 4066406510,
+// 3621116014, 1870840792, in the order Agitators, Vox Engines, Obtruders,
+// Gatekeepers. They look like species hashes. Nothing here or in the community
+// API's docs maps them to names, and inventing a scheme off four samples would
+// be a guess that reads as fact on screen.
+//
+// So the four marks are handed out in the order the tasks arrive, which is the
+// order the reference screenshot and the live payload both show today. An
+// order whose tasks come in a different order, or that counts something else
+// entirely, will put the wrong mark against the wrong row -- and the row's own
+// caption and figures stay right, because none of this touches them. Anything
+// past the fourth task gets no mark rather than a repeat of the first.
+IconRef taskIcon(uint8_t taskIdx) {
+  switch (taskIdx) {
+    case 0: return {icons::taskAgitators, icons::taskAgitatorsW, icons::taskAgitatorsH};
+    case 1: return {icons::taskVoxEngine, icons::taskVoxEngineW, icons::taskVoxEngineH};
+    case 2: return {icons::taskObtruder, icons::taskObtruderW, icons::taskObtruderH};
+    case 3: return {icons::taskGatekeeper, icons::taskGatekeeperW, icons::taskGatekeeperH};
+    default: return {nullptr, 0, 0};
+  }
+}
+
 // Source coordinate, in 24.8 fixed point, for destination pixel `d` when
 // scaling `dstLen` pixels down onto `srcLen`. Half-pixel centred, so the
 // interpolation is symmetric, and clamped at the left/top edge where the
@@ -1279,7 +1311,13 @@ void HUDRenderer::drawCombinedRow(const HudModel &m, uint8_t taskIdx,
   const float pct = taskPercent(t);
   const uint16_t tint = t.complete ? theme::green : theme::blue;
 
-  const int16_t capW = cardW - moCombPctW - moCombPctGap;
+  // The mark, then the caption, then the percentage column. The mark comes out
+  // of the caption's width the same way the percentage already does, so the
+  // three sit in fixed columns and the captions start at one x down the card.
+  const IconRef mark = taskIcon(taskIdx);
+  const int16_t capX = cardX + moCombIconW + moCombIconGap;
+  const int16_t capW =
+      cardW - moCombIconW - moCombIconGap - moCombPctW - moCombPctGap;
 
   // Full digits where they fit, because this card has the width the per-task
   // caption did not and "17,842,731 / 25,000,000" is the figure the objective
@@ -1294,13 +1332,29 @@ void HUDRenderer::drawCombinedRow(const HudModel &m, uint8_t taskIdx,
               formatCompact(t.goal);
   }
 
+  // drawBitmap() paints set bits and leaves the rest, so the cell is cleared
+  // first -- the same thing textBox() does for the two boxes beside it.
+  //
+  // Gold on every row, complete or not. The mark says which target the row is,
+  // and the two things next to it -- the percentage and the track -- already
+  // carry whether that target is done; tinting the identity green as well
+  // would say the same thing a third time and make a finished row's mark a
+  // different-looking mark. It is also the colour the in-game screen draws all
+  // four in.
+  _tft.fillRect(cardX, capY, moCombIconW, moCombCapH, theme::bg);
+  if (mark.bits) {
+    _tft.drawBitmap(cardX + (moCombIconW - mark.w) / 2,
+                    capY + (moCombCapH - mark.h) / 2, mark.bits, mark.w, mark.h,
+                    theme::gold);
+  }
+
   // nullptr font == the built-in 6x8 GLCD face, as everywhere else a caption
   // has to sit in a row this tight.
-  textBox(cardX, capY, capW, moCombCapH, theme::bg, nullptr, theme::grey,
+  textBox(capX, capY, capW, moCombCapH, theme::bg, nullptr, theme::grey,
           ML_DATUM, caption);
   char pctStr[12];
   snprintf(pctStr, sizeof(pctStr), "%.1f%%", pct);
-  textBox(cardX + capW + moCombPctGap, capY, moCombPctW, moCombCapH, theme::bg,
+  textBox(capX + capW + moCombPctGap, capY, moCombPctW, moCombCapH, theme::bg,
           FONT_LABEL, t.complete ? theme::green : theme::gold, MR_DATUM, pctStr);
 
   drawTrack(capY + moCombBarDy, moCombBarH, pct, tint);

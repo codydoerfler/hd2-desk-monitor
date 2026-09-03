@@ -275,11 +275,17 @@ check(f"{MAX_TASKS} rows at their pitch fit the space", MAX_TASKS * kPitch,
       kAvailH)
 check("caption and track fit one row's pitch", moCombBarDy + moCombBarH, kPitch)
 check("caption row clears the track above it", moCombCapH, moCombBarDy)
-# The caption is the built-in 6x8 face and shares its row with the percentage
-# column. The widest pair the renderer can print at full digits is a billion
-# against a billion, which is what formatCompact() exists to fall back from --
-# so this asserts the fallback is reachable, i.e. the compact form always fits.
-kCapW = cardW - moCombPctW - moCombPctGap
+# Each row leads with the mark for its target, which has to sit inside the box
+# the caption is set in -- the track is 2px under that box and the row above is
+# 7px over it, so a mark taller than the box lands on one of them.
+check("task mark inside the caption row", ICONS["taskAgitators"][1], moCombCapH)
+check("task mark inside its own column", ICONS["taskAgitators"][0], moCombIconW)
+# The caption is the built-in 6x8 face and shares its row with the mark ahead
+# of it and the percentage column behind it. The widest pair the renderer can
+# print at full digits is a billion against a billion, which is what
+# formatCompact() exists to fall back from -- so this asserts the fallback is
+# reachable, i.e. the compact form always fits.
+kCapW = cardW - moCombIconW - moCombIconGap - moCombPctW - moCombPctGap
 check("full-digit caption at a realistic goal",
       glcd("ELIMINATED  23,909,079 / 25,000,000"), kCapW)
 check("compact caption at the widest goal",

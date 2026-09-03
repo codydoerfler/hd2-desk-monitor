@@ -22,10 +22,21 @@ over. Pages advance on a 7s timer, or on a swipe (which restarts the timer).
 An order whose targets are all count-style and share a planet slot -- the
 galaxy-wide "kill N of each faction" shape -- collapses to a single combined
 card instead of a page per target: a band naming the subject, the order and the
-overall mean, then one row per target with its figures, its own percentage and
-its track. Liberation and defence targets are excluded; they keep the per-task
-card, which their artwork and planet stats need. See orderIsCombinedCount() in
-src/hud_renderer.cpp.
+overall mean, then one row per target with the mark of what it is killing, its
+figures, its own percentage and its track. Liberation and defence targets are
+excluded; they keep the per-task card, which their artwork and planet stats
+need. See orderIsCombinedCount() in src/hud_renderer.cpp.
+
+The row marks are assigned by task POSITION, not by species -- taskIcon() in
+src/hud_renderer.cpp hands out Agitators/Vox Engine/Obtruder/Gatekeeper to rows
+0..3 and nothing past that. Nothing in the assignment payload identifies what a
+count task targets: all four live tasks are type 3 and differ only in progress,
+goal, and one untagged value that looks like a species hash with no mapping
+anywhere in this project or the community API's docs. This is a deliberate
+stand-in, and a different task order will pair the wrong mark with the wrong
+row; the caption and figures beside it are computed independently and stay
+right. Don't read the marks as a species lookup, and see the comment on
+taskIcon() before extending them.
 
 Two events take the whole panel: a new Major Order arriving, and the verdict
 when one ends. They interrupt the carousel and stay up until tapped -- no
@@ -81,7 +92,8 @@ clips where a card is present.
   NVS and entered by holding the panel while powering on — or, on a unit that
   has never been set up, by the first-boot prompt (see below).
 - `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
-  tiles, crest/skull mark, shield icon, hazard chips, etc).
+  tiles, crest/skull mark, shield icon, hazard chips, the combined card's
+  per-row task marks, etc).
 - `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
   for Automaton/Terminid/Illuminate. Separate from hud_icons.h because these
   three carry their own colour rather than being 1-bit masks tinted by the

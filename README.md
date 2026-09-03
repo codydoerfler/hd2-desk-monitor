@@ -677,13 +677,30 @@ per target. It gets one card carrying all of them:
 A flat band names the subject (the shared planet if there is one, otherwise
 `GALAXY-WIDE`), the order, and the mean of the rows below it, with the
 countdown plate at its top corner instead of its foot. Then one row per
-target: what it is counting, `current / goal` at full digits, that target's own
-percentage in a fixed column at the right, and its track underneath.
+target: the mark of the thing being killed, what it is counting, `current /
+goal` at full digits, that target's own percentage in a fixed column at the
+right, and its track underneath.
 
 Four full-page slides for four kill counts meant waiting 21 s to see the state
 of an order you can read in one glance, and the per-target percentage sat at
 the tail of a caption row in 6×8 type — the smallest thing on the card, at a
 different x on every page. Both are fixed by the same layout.
+
+**The mark at the head of each row is assigned by position, not by species.**
+Row 0 gets the Agitators mark, row 1 the Vox Engine, row 2 the Obtruder, row 3
+the Gatekeeper, and a fifth row would get none. That is the order the reference
+screenshot and the live payload both show, and it is a stand-in: nothing in the
+assignment payload says what a task is counting. An eradicate task carries
+`type: 3` and a goal, and `hd2_api.cpp` reads `planetIndex` and `goal` out of
+`values` because those are the two slots `valueTypes` names. The four live tasks
+differ only in progress, goal, and one untagged number that looks like a species
+hash — and nothing here or in the community API's docs maps those to names, so
+inventing a scheme off four samples would be a guess that reads as fact on
+screen. An order whose tasks arrive in a different order will put the wrong mark
+against the wrong row; the caption and the figures beside it stay right, because
+none of this touches them. Traced from the in-game medallions by
+`tools/gen_icons.py` — the inner symbol only, at 16×16, which is `moCombCapH`
+exactly, so a mark reaches neither the track under its row nor the row above it.
 
 The percentage is `taskPercent()`: that target's progress against that
 target's goal. The in-game screen labels the same column "REWARD IMPACT %",

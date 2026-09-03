@@ -19,7 +19,7 @@ import argparse
 import math
 import os
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 S = 8  # supersample factor
 THRESHOLD = 100  # 0-255 coverage above which a device pixel is set
@@ -103,19 +103,31 @@ class Canvas:
 #  geometry.
 # ---------------------------------------------------------------------------
 
-def mask_fit(c, mask):
+def mask_fit(c, mask, even_w=False):
     """Scale a 1-bit mask to fit the canvas' supersampled slot and centre it.
 
     The mask keeps its own aspect ratio — it is letterboxed inside the slot
     rather than stretched to the slot's exact dimensions, since the icon's
     declared w:h in ICONS is a layout box, not a statement about the art.
     Canvas.bits() then box-filters and thresholds it like any drawn shape.
+
+    `even_w` rounds the scaled width to an even number of supersamples so the
+    centring divides exactly. Without it a mask that lands on an odd width sits
+    half a supersample off centre, and the box filter then reads a shade more
+    coverage down one side than the other — which on art that is symmetric to
+    begin with shows up as an icon whose two halves do not match. Only the task
+    medallions ask for it; the marks that predate it are asymmetric anyway and
+    would only shift if it were made unconditional.
     """
     src_w, src_h = mask.size
     slot_w, slot_h = c.w * S, c.h * S
 
     scale = min(slot_w / src_w, slot_h / src_h)
     new_w, new_h = max(1, round(src_w * scale)), max(1, round(src_h * scale))
+    if even_w:
+        new_w = max(2, round(new_w / 2) * 2)
+        if new_w > slot_w:
+            new_w -= 2
     resized = mask.resize((new_w, new_h), Image.LANCZOS)
 
     c.img.paste(resized, ((slot_w - new_w) // 2, (slot_h - new_h) // 2))
@@ -172,6 +184,128 @@ def hd2_logo(c):
     src = Image.open(os.path.join(HERE, "assets", "hd2_logo_source.jpg")).convert("L")
     m = src.point(lambda p: 255 if p >= HD2_LOGO_CUT else 0)
     mask_fit(c, m.crop(m.getbbox()))
+
+
+# ---------------------------------------------------------------------------
+#  Major Order task medallions
+#
+#  The four marks the in-game Major Order screen sets beside each objective row
+#  of a multi-target kill order — Agitators, Vox Engines, Obtruders,
+#  Gatekeepers. Traced from tools/assets/task_icon_*_source.png, which are
+#  crops of the same reference screenshot the combined card itself was built
+#  from, by the same threshold-and-fit route as seaf() and crest(); they are
+#  not redrawn as vector geometry.
+#
+#  Two things have to happen to a crop before mask_fit() can take it.
+#
+#  The medallion's ring goes. There is no room for a badge-in-a-ring beside a
+#  row of 6x8 text at the height the card gives a row, and the ring is the one
+#  part of the art that is identical on all four marks, so it is the part
+#  carrying no information here. It is cut by connected component rather than
+#  by a circular crop: every blob whose centroid sits outside RING_KEEP of the
+#  medallion's radius is ring — or the neighbouring row divider a crop caught —
+#  and is dropped, which keeps the marks' own detached pieces, the Vox Engine's
+#  side ticks and the Gatekeeper's shoulders, that one circle big enough to
+#  clear the skull would have swept up along with the ring.
+#
+#  Then each crop is averaged against its own mirror. Every one of the four
+#  marks is drawn symmetric, but the crops are ~26px of a compressed screenshot
+#  upscaled, so the two halves disagree pixel for pixel; folding the crop over
+#  its axis cancels that rather than baking one half's jpeg artefacts into the
+#  icon. It is the by-eye cleanup the source needs, expressed as one operation.
+
+# Medallion geometry, measured off the crops: centre and ring radius in source
+# pixels, then the luminance a pixel has to reach to count as part of the mark.
+# The cuts differ because the marks do: the Vox Engine's antenna is the
+# faintest stroke in the set and a cut sized for the Agitators skull loses it.
+#
+#     name: (cx, cy, ring radius, luminance cut)
+TASK_MEDALLIONS = {
+    "taskAgitators":  (144, 129, 100, 90),
+    "taskVoxEngine":  (144, 128, 100, 70),
+    "taskObtruder":   (145, 119, 111, 90),
+    "taskGatekeeper": (145, 171, 111, 70),
+}
+
+# Source file per mark, keyed the same way.
+TASK_SOURCES = {
+    "taskAgitators":  "task_icon_agitators_source.png",
+    "taskVoxEngine":  "task_icon_voxengine_source.png",
+    "taskObtruder":   "task_icon_obtruder_source.png",
+    "taskGatekeeper": "task_icon_gatekeeper_source.png",
+}
+
+# How far out a blob's centroid may sit, as a fraction of the ring radius, and
+# still count as part of the mark. The ring's own fragments centre on 1.0 by
+# definition; the outermost piece of any of the four marks centres on 0.62.
+RING_KEEP = 0.72
+
+
+def _blobs(px, w, h):
+    """8-connected components of a 0/255 mask, as lists of (x, y)."""
+    seen = bytearray(w * h)
+    out = []
+    for y0 in range(h):
+        for x0 in range(w):
+            if not px[x0, y0] or seen[y0 * w + x0]:
+                continue
+            stack, pts = [(x0, y0)], []
+            seen[y0 * w + x0] = 1
+            while stack:
+                x, y = stack.pop()
+                pts.append((x, y))
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        nx, ny = x + dx, y + dy
+                        if (0 <= nx < w and 0 <= ny < h
+                                and not seen[ny * w + nx] and px[nx, ny]):
+                            seen[ny * w + nx] = 1
+                            stack.append((nx, ny))
+            out.append(pts)
+    return out
+
+
+def task_mark(name):
+    """The inner symbol of one task medallion, as a tight 1-bit mask."""
+    cx, cy, radius, cut = TASK_MEDALLIONS[name]
+    src = Image.open(os.path.join(HERE, "assets", TASK_SOURCES[name])).convert("L")
+
+    # A window a little wider than the ring, so the fold has the whole
+    # medallion to work with and nothing of the row above or below it.
+    r = int(radius * 1.10)
+    win = src.crop((cx - r, cy - r, cx + r, cy + r))
+    win = ImageChops.add(win.point(lambda p: p // 2),
+                         win.transpose(Image.FLIP_LEFT_RIGHT).point(lambda p: p // 2))
+
+    m = win.point(lambda p: 255 if p >= cut else 0)
+    w, h = m.size
+    px = m.load()
+
+    keep = Image.new("L", (w, h), 0)
+    kp = keep.load()
+    for blob in _blobs(px, w, h):
+        mx = sum(p[0] for p in blob) / len(blob)
+        my = sum(p[1] for p in blob) / len(blob)
+        if ((mx - r) ** 2 + (my - r) ** 2) ** 0.5 <= RING_KEEP * radius:
+            for x, y in blob:
+                kp[x, y] = 255
+
+    bbox = keep.getbbox()
+    return keep.crop(bbox) if bbox else keep
+
+
+def task_icon(name):
+    """Draw fn for one task medallion, for the ICONS table.
+
+    Each mark is letterboxed into its own slot rather than scaled by a rule
+    shared across the four, so the small ones are not left illegible: the Vox
+    Engine mark occupies about half of its medallion and the Agitators skull
+    nearly all of one, and holding that ratio at 16px would leave the first a
+    smudge. What the row needs from these is 'which of the four is this', not a
+    faithful record of how much of a ring each one filled.
+    """
+    return lambda c: mask_fit(c, task_mark(name), even_w=True)
+
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +611,16 @@ ICONS = [
     ("hazStorm",    14, 14, haz_storm),
     ("hazTremor",   14, 14, haz_tremor),
     ("hazOther",    14, 14, haz_other),
+
+    # --- combined count card, one per objective row ------------------------
+    # 16x16 is moCombCapH exactly, so a mark sits in the same box the row's
+    # caption is set in and cannot reach the track below it or the row above.
+    # See drawCombinedRow() for the order these are handed out in, and the
+    # comment above taskIcon() for why that order is by position.
+    ("taskAgitators",  16, 16, task_icon("taskAgitators")),
+    ("taskVoxEngine",  16, 16, task_icon("taskVoxEngine")),
+    ("taskObtruder",   16, 16, task_icon("taskObtruder")),
+    ("taskGatekeeper", 16, 16, task_icon("taskGatekeeper")),
 ]
 
 

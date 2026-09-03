@@ -399,6 +399,12 @@ constexpr int16_t moCombBarDy = 18, moCombBarH = 14;
 // string it holds.
 constexpr int16_t moCombPctW = 62;
 constexpr int16_t moCombPctGap = 8;                 // caption -> percentage
+// The mark at the head of each row, in the column the caption gives up for it.
+// Square at moCombCapH, so it sits in the same box the caption is set in and
+// reaches neither the track under the row nor the row above it. See
+// drawCombinedRow() for what draws it and taskIcon() for what picks it.
+constexpr int16_t moCombIconW = moCombCapH;
+constexpr int16_t moCombIconGap = 8;                // mark -> caption
 
 // --- header + footer ------------------------------------------------------
 // Gap between the objective-type word and the LIBCON chip beside it.
