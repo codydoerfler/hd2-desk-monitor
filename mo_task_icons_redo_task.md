@@ -81,3 +81,42 @@ Verify: `check_layout.py` and `count_floor_test.sh` still green, build
 clean, note the flash delta. Confirm in the PR update comment that the new
 icons were visually compared against the reference image, not just that the
 pipeline ran without error.
+## Scope addendum — artwork beyond the four task icons
+
+Cody's ask: "make sure the artwork is there, the logos, everything" — check
+whether other visual elements from the reference screenshot
+(`mo_task_icons_reference.jpg`) that this device's screens are meant to show
+are actually present and correct, not just the four task-row icons this
+branch already targets.
+
+Do a pass comparing the reference screenshot's other iconography against
+what the firmware currently renders on the corresponding screens (the new
+overlay / combined card / header, whatever screen each element belongs to),
+and note anywhere something is missing, wrong, or wildly off — the same kind
+of gap the four task icons had. Candidates visible in the reference, cross
+check each against current source:
+
+- The small target/crosshair-in-circle icon next to the briefing text —
+  compare against whatever renders in the overlay's briefing area today
+  (likely `icons::target` in hud_icons.h — check if it's already this
+  shape or something else).
+- The bottom skull-over-chevrons medallion badge (appears at the bottom of
+  the reference screen, above "FOR SUPER EARTH!") — compare against
+  `icons::skull`/`icons::crest`/whatever the current footer/badge art uses.
+- The two small star/pip icons flanking the "MAJOR ORDER" title text.
+- The SEAF/Super Earth emblem — already exists as `icons::emblemLarge`,
+  confirm it's still being used correctly and hasn't drifted, no action
+  needed if it checks out.
+
+For each: if it already exists and matches reasonably well, leave it alone
+and say so in the PR update — don't rework something that's already right.
+If something is missing entirely or clearly doesn't match (the same kind of
+"not even close" gap flagged on the task icons), trace it from the reference
+the same careful by-eye way as the task icon redo — no automated
+threshold/blob extraction, a human-verified trace, checked side by side
+against the source crop before calling it done.
+
+Scope this realistically: this is a check-and-fix-what's-actually-broken
+pass, not a full re-skin of every screen in the app. If everything besides
+the four task icons already matches, say so plainly and don't invent new
+work.
