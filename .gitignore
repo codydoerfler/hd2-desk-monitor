@@ -23,3 +23,9 @@
 # looked at without flashing hardware.
 preview_*.png
 !docs/preview_*.png
+
+# Site build output. site/index.html IS tracked -- it is the file uploaded to
+# Cloudflare, so deploying needs only a pull, not a Python run. artifact.html
+# is the same page rebodied for a claude.ai artifact publish, and has no
+# reason to be in history.
+site/artifact.html

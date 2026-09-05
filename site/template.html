@@ -1,0 +1,589 @@
+<title>Major Order Desk Monitor</title>
+<style>
+  /* ============================================================
+     Palette lifted verbatim from src/config.h :: namespace theme
+     The site and the firmware share one set of colours.
+     ============================================================ */
+  :root {
+    --void:      #0A0C10;  /* theme::bg      page ground            */
+    --panel:     #12161C;  /* theme::panel   card fill              */
+    --track:     #1E232B;  /* theme::track   insets, bar tracks     */
+    --gold:      #DFB24F;  /* theme::gold    the accent             */
+    --gold-dim:  #8C6F32;  /* theme::goldDim hairlines, borders     */
+    --gold-mute: #5A4822;  /* theme::goldMute disabled              */
+    --bone:      #E6E8EB;  /* theme::text    body copy              */
+    --slate:     #6E7680;  /* theme::grey    labels                 */
+    --blue:      #4A8CC7;  /* theme::blue    progress   (semantic)  */
+    --red:       #C63A2F;  /* theme::red     enemy      (semantic)  */
+    --green:     #5CA860;  /* theme::green   online     (semantic)  */
+    --edge:      #2C323C;  /* theme::cardEdge panel hairline        */
+
+    --display: "Anton", "Haettenschweiler", "Arial Narrow", sans-serif;
+    --body: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    --col: 1140px;
+    --gut: clamp(20px, 5vw, 48px);
+  }
+
+  /* Anton — the exact face the firmware renders headings in.
+     See src/hud_font_anton.h / tools/assets/Anton-Regular.ttf */
+  @font-face {
+    font-family: "Anton";
+    src: url("data:font/ttf;base64,{{FONT_ANTON}}") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--void);
+    color: var(--bone);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ---- the command-terminal frame -------------------------------
+     Echoes the corner brackets the device draws around its own
+     screen (see the renders below). Fixed, non-interactive. */
+  .frame { position: fixed; inset: 10px; pointer-events: none; z-index: 90; }
+  .frame span { position: absolute; width: 26px; height: 26px; }
+  .frame span::before, .frame span::after {
+    content: ""; position: absolute; background: var(--gold);
+  }
+  .frame span::before { width: 100%; height: 2px; }
+  .frame span::after  { width: 2px;  height: 100%; }
+  .frame .tl { top: 0; left: 0; }
+  .frame .tl::before { top: 0; left: 0; }  .frame .tl::after { top: 0; left: 0; }
+  .frame .tr { top: 0; right: 0; }
+  .frame .tr::before { top: 0; right: 0; } .frame .tr::after { top: 0; right: 0; }
+  .frame .bl { bottom: 0; left: 0; }
+  .frame .bl::before { bottom: 0; left: 0; } .frame .bl::after { bottom: 0; left: 0; }
+  .frame .br { bottom: 0; right: 0; }
+  .frame .br::before { bottom: 0; right: 0; } .frame .br::after { bottom: 0; right: 0; }
+
+  /* Horizontal longhands only. A `padding` shorthand here would outrank the
+     element-level vertical padding on section/footer and silently zero it. */
+  .wrap { max-width: var(--col); margin: 0 auto; padding-left: var(--gut); padding-right: var(--gut); }
+
+  /* ---- type ------------------------------------------------------ */
+  h1, h2, h3 { font-family: var(--display); font-weight: 400; text-transform: uppercase; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+  h1 { font-size: clamp(2.6rem, 6.2vw, 5rem); line-height: 0.94; overflow-wrap: break-word; }
+  h2 { font-size: clamp(1.9rem, 4.4vw, 3.1rem); line-height: 1.0; }
+  h3 { font-size: clamp(1.15rem, 2vw, 1.4rem); line-height: 1.15; color: var(--bone); }
+  p { margin: 0; }
+
+  a { color: var(--gold); text-decoration-color: var(--gold-mute); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--gold); }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 1px;
+  }
+
+  .mono { font-family: var(--mono); font-size: 0.86em; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.24em;
+    text-transform: uppercase; color: var(--gold); display: flex;
+    align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--gold-mute); }
+
+  .lede { font-size: clamp(1.05rem, 1.9vw, 1.3rem); color: var(--bone); max-width: 62ch; line-height: 1.55; }
+  .muted { color: var(--slate); }
+  .small { font-size: 0.94rem; }
+
+  /* hazard tape — Super Earth's own divider */
+  .hazard {
+    height: 12px; margin: 0;
+    background: repeating-linear-gradient(-45deg,
+      var(--gold) 0 11px, var(--void) 11px 22px);
+    opacity: 0.5;
+  }
+
+  section { padding-top: clamp(56px, 9vw, 104px); padding-bottom: clamp(56px, 9vw, 104px); }
+  .rule { height: 1px; background: var(--edge); border: 0; margin: 0; }
+
+  /* ============ HERO ============ */
+  .hero { padding-top: clamp(48px, 8vw, 88px); padding-bottom: clamp(40px, 6vw, 64px); }
+  .hero-grid { display: grid; gap: clamp(32px, 5vw, 56px); }
+  @media (min-width: 940px) { .hero-grid { grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); align-items: center; } }
+
+  .stamp {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--gold);
+    border: 1px solid var(--gold-dim); padding: 6px 12px; margin-bottom: 22px;
+  }
+  .stamp b { color: var(--bone); font-weight: 400; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+  h1 .thin { display: block; font-size: 0.36em; letter-spacing: 0.22em; color: var(--gold); line-height: 1.3; }
+  .hero p.lede { margin-top: 22px; }
+
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .btn {
+    font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.14em;
+    text-transform: uppercase; text-decoration: none;
+    padding: 13px 22px; border: 1px solid var(--gold-dim); color: var(--gold);
+    background: transparent; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .btn:hover { background: var(--gold); color: #141006; border-color: var(--gold); }
+  .btn.solid { background: var(--gold); color: #141006; border-color: var(--gold); }
+  .btn.solid:hover { background: var(--bone); border-color: var(--bone); }
+
+  /* ---- the bezel: a mocked 4" panel running the real renders ---- */
+  .bezel {
+    background: linear-gradient(#1a1d23, #0d0f13);
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    padding: 14px 14px 26px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
+    position: relative;
+  }
+  .screen {
+    position: relative; aspect-ratio: 480 / 320; overflow: hidden;
+    background: var(--void); border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #000, inset 0 0 22px rgba(0,0,0,0.9);
+    touch-action: pan-y;
+    cursor: grab;
+  }
+  .screen:active { cursor: grabbing; }
+  .screen img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: fill; opacity: 0; transition: opacity 0.42s ease;
+    image-rendering: auto; user-select: none; -webkit-user-drag: none;
+  }
+  .screen img.on { opacity: 1; }
+  /* faint scanline veil — it is an LCD being photographed, not a print */
+  .screen::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
+    mix-blend-mode: multiply;
+  }
+  .bezel-chin {
+    position: absolute; left: 0; right: 0; bottom: 8px;
+    display: flex; align-items: center; justify-content: center; gap: 9px;
+  }
+  .pip {
+    width: 7px; height: 7px; border: 1px solid var(--gold-dim); background: transparent;
+    padding: 0; cursor: pointer; transition: background 0.2s, border-color 0.2s;
+  }
+  .pip[aria-current="true"] { background: var(--gold); border-color: var(--gold); }
+  .pip:hover { border-color: var(--gold); }
+
+  .beat { height: 2px; background: var(--track); margin-top: 10px; overflow: hidden; }
+  .beat i { display: block; height: 100%; width: 0; background: var(--gold-dim); }
+  .beat i.run { animation: beat 7s linear forwards; }
+  @keyframes beat { from { width: 0; } to { width: 100%; } }
+
+  .screen-cap {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+    margin-top: 14px; font-family: var(--mono); font-size: 0.74rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--slate);
+  }
+  .screen-cap b { color: var(--gold); font-weight: 400; }
+  .hint { text-align: center; margin-top: 10px; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold-mute); }
+
+  /* ---- spec strip ---- */
+  .specs {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    border: 1px solid var(--edge); margin-top: clamp(40px, 6vw, 64px);
+    /* gridlines via the gap, so wrapping never leaves a dangling border */
+    gap: 1px; background: var(--edge);
+  }
+  .specs div { padding: 20px 22px; background: var(--void); }
+  .specs dt { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--slate); margin: 0 0 6px; }
+  .specs dd { margin: 0; font-family: var(--display); font-size: 1.55rem; color: var(--gold); text-transform: uppercase; font-variant-numeric: tabular-nums; }
+  .specs dd small { font-family: var(--body); font-size: 0.62rem; letter-spacing: 0.1em; color: var(--slate); display: block; text-transform: none; margin-top: 3px; }
+
+  /* ============ generic content ============ */
+  .head-block { max-width: 66ch; }
+  .head-block p { margin-top: 16px; color: var(--slate); }
+  .head-block p strong { color: var(--bone); font-weight: 600; }
+
+  .cards { display: grid; gap: 18px; margin-top: 42px; }
+  @media (min-width: 760px) { .cards.two { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 900px) { .cards.three { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 760px) { .cards.four { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1000px) { .cards.four { grid-template-columns: repeat(4, 1fr); } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--edge); padding: 24px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card .tag {
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--gold);
+  }
+  .card p { color: var(--slate); font-size: 0.97rem; }
+
+  /* event screens */
+  .events { display: grid; gap: 22px; margin-top: 42px; }
+  @media (min-width: 860px) { .events { grid-template-columns: repeat(3, 1fr); } }
+  .event img { width: 100%; height: auto; display: block; border: 1px solid var(--edge); }
+  .event h3 { margin-top: 18px; font-size: 1.1rem; }
+  .event p { color: var(--slate); font-size: 0.95rem; margin-top: 8px; }
+  .event .bar { height: 3px; margin-top: 14px; }
+
+  /* callout */
+  .callout {
+    margin-top: 34px; padding: 22px 24px; background: var(--panel);
+    border: 1px solid var(--gold-mute); border-left: 3px solid var(--gold);
+  }
+  .callout .tag { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); display: block; margin-bottom: 8px; }
+  .callout p { color: var(--slate); font-size: 0.96rem; }
+
+  footer { padding-top: clamp(48px, 7vw, 76px); padding-bottom: clamp(56px, 8vw, 90px); }
+  footer .cols { display: grid; gap: 30px; }
+  @media (min-width: 760px) { footer .cols { grid-template-columns: 1.5fr 1fr; } }
+  footer h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 12px; }
+  footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  footer li { color: var(--slate); font-size: 0.93rem; }
+  footer p.small { color: var(--slate); }
+  .disclaimer {
+    margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--edge);
+    color: var(--gold-mute); font-family: var(--mono); font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.9;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+
+<div class="frame" aria-hidden="true"><span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span></div>
+
+<!-- ============================ HERO ============================ -->
+<header class="hero wrap">
+  <div class="hero-grid">
+    <div>
+      <div class="stamp"><span class="dot"></span> Super Earth &middot; <b>Firmware v1.2.0</b></div>
+      <h1><span class="thin">Helldivers 2</span>Major Order Desk Monitor</h1>
+      <p class="lede">
+        The galactic war, sitting on your desk. It shows the Major Order High
+        Command is running right now &mdash; which planet, how close it is to
+        falling, how long is left, and how many Helldivers are down there
+        this minute.
+      </p>
+      <p class="lede muted small" style="margin-top:16px">
+        Not a phone app you open. A small lit panel in the corner of your desk
+        that always already knows.
+      </p>
+      <div class="cta-row">
+        <a class="btn solid" href="https://github.com/codydoerfler/hd2-desk-monitor">See how it's built</a>
+      </div>
+    </div>
+
+    <div>
+      <div class="bezel">
+        <div class="screen" id="screen" role="group" aria-roledescription="carousel" aria-label="Live HUD screens">
+          {{CAROUSEL_IMAGES}}
+        </div>
+        <div class="bezel-chin" id="pips"></div>
+      </div>
+      <div class="beat" aria-hidden="true"><i id="beat"></i></div>
+      <div class="screen-cap">
+        <span id="cap-name">Liberation</span>
+        <span><b id="cap-idx">1</b> / <span id="cap-total">8</span></span>
+      </div>
+      <p class="hint">Drag to page &middot; advances every 7s, like the device</p>
+    </div>
+  </div>
+
+  <dl class="specs">
+    <div><dt>Panel</dt><dd>480&times;320<small>4&Prime; landscape LCD</small></dd></div>
+    <div><dt>Refresh</dt><dd>5 min<small>live war data</small></dd></div>
+    <div><dt>Setup</dt><dd>Once<small>WiFi, then never again</small></dd></div>
+    <div><dt>Power</dt><dd>USB-C<small>plug in and forget</small></dd></div>
+  </dl>
+</header>
+
+<div class="hazard" role="presentation"></div>
+
+<!-- ========================= WHAT IT TELLS YOU ========================= -->
+<section class="wrap">
+  <div class="head-block">
+    <p class="eyebrow">What you see</p>
+    <h2>One glance and you know where the war stands</h2>
+    <p>
+      No menus, no tapping through screens. Every card is built around the
+      target planet's own biome, with the numbers that matter set over it.
+    </p>
+  </div>
+
+  <div class="cards three">
+    <div class="card">
+      <span class="tag">The order</span>
+      <h3>What High Command wants</h3>
+      <p>
+        The objective, the medals riding on it, and exactly how long is left.
+        The countdown ticks every second.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">The planet</span>
+      <h3>How close it is to falling</h3>
+      <p>
+        Which world, which sector, who holds it now, and how far the liberation
+        has actually got &mdash; against the enemy pushing the other way.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">The pace</span>
+      <h3>Whether you're winning it</h3>
+      <p>
+        How many divers are on the ground, and whether their push per hour is
+        beating the enemy's regen. The difference between a planet you'll take
+        and one you won't.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="tag">It's never idle</span>
+    <p>
+      When an order names several planets, the display cycles through them.
+      When there is no order at all, it shows the five busiest liberation
+      campaigns in the galaxy instead &mdash; so there is always a war on the
+      screen while there is a war on.
+    </p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ========================= EVENT SCREENS ========================= -->
+<section class="wrap">
+  <div class="head-block">
+    <p class="eyebrow">When it matters</p>
+    <h2>It looks up and tells you</h2>
+    <p>
+      Most of the time it is a quiet dashboard you read out of the corner of
+      your eye. Twice per order it takes the whole panel &mdash; and plays a clip
+      through the speaker so you hear it from the other side of the room.
+    </p>
+  </div>
+
+  <div class="events">
+    <figure class="event" style="margin:0">
+      <img src="data:image/png;base64,{{IMG_neworder}}" alt="Full-screen NEW MAJOR ORDER briefing on the device" width="960" height="640" loading="lazy">
+      <div class="bar" style="background:var(--gold)"></div>
+      <h3>A new order lands</h3>
+      <p>The order's name and High Command's briefing, full screen, the moment it drops.</p>
+    </figure>
+    <figure class="event" style="margin:0">
+      <img src="data:image/png;base64,{{IMG_success}}" alt="Full-screen ORDER COMPLETE screen with a green band" width="960" height="640" loading="lazy">
+      <div class="bar" style="background:var(--green)"></div>
+      <h3>You won it</h3>
+      <p>
+        The green band is the whole design: from across a room the colour has
+        already said it before any of the words have.
+      </p>
+    </figure>
+    <figure class="event" style="margin:0">
+      <img src="data:image/png;base64,{{IMG_failure}}" alt="Full-screen ORDER FAILED screen" width="960" height="640" loading="lazy">
+      <div class="bar" style="background:var(--red)"></div>
+      <h3>You didn't</h3>
+      <p>
+        With the objective count, because &ldquo;3 of 4 objectives met&rdquo; is a
+        materially different evening from &ldquo;0 of 4&rdquo;.
+      </p>
+    </figure>
+  </div>
+</section>
+
+<div class="hazard" role="presentation"></div>
+
+<!-- ========================= IT JUST RUNS ========================= -->
+<section class="wrap">
+  <div class="head-block">
+    <p class="eyebrow">Then it leaves you alone</p>
+    <h2>Nothing to maintain</h2>
+    <p>
+      It is a finished object, not a project you keep tending. Set it up once
+      and it looks after itself from there.
+    </p>
+  </div>
+
+  <div class="cards four">
+    <div class="card">
+      <span class="tag">Setup</span>
+      <p>
+        Plug it in, join it to your WiFi from your phone once. That is the
+        entire setup.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Updates</span>
+      <p>
+        New firmware arrives over the internet on its own. A cable is only ever
+        needed for the very first flash.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Outages</span>
+      <p>
+        Lost the connection? The last good data stays up, quietly marked stale.
+        Stale beats blank.
+      </p>
+    </div>
+    <div class="card">
+      <span class="tag">Touch</span>
+      <p>
+        Swipe to page through planets by hand, tap to dismiss an alert. It keeps
+        cycling on its own either way.
+      </p>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<footer class="wrap">
+  <div class="cols">
+    <div>
+      <h3>Major Order Desk Monitor</h3>
+      <p class="small">
+        An unofficial fan project by Cody Doerfler. Built on an ESP32 with a
+        4&Prime; panel, reading the community Helldivers 2 API. If you want the
+        pinout, the partition table and the reason the touch driver had to be
+        rewritten, it's all in the
+        <a href="https://github.com/codydoerfler/hd2-desk-monitor">README on GitHub</a>
+        &mdash; along with everything you'd need to build one.
+      </p>
+    </div>
+    <div>
+      <h3>Built on</h3>
+      <ul>
+        <li><a href="https://github.com/helldivers-2/api">helldivers-2/api</a> &mdash; the war data</li>
+        <li><a href="https://github.com/Bodmer/TFT_eSPI">Bodmer/TFT_eSPI</a> &mdash; the display</li>
+        <li><a href="https://github.com/codydoerfler/hd2-desk-monitor/releases">Firmware releases</a></li>
+      </ul>
+    </div>
+  </div>
+  <p class="disclaimer">
+    Unofficial fan project &middot; not affiliated with Arrowhead Game Studios or Sony
+    &middot; every screen shown here is rendered by the firmware's own renderer
+  </p>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var screenEl = document.getElementById("screen");
+  if (!screenEl) return;
+
+  var slides = Array.prototype.slice.call(screenEl.querySelectorAll("img"));
+  if (!slides.length) return;
+
+  var pipsEl  = document.getElementById("pips");
+  var beatEl  = document.getElementById("beat");
+  var capName = document.getElementById("cap-name");
+  var capIdx  = document.getElementById("cap-idx");
+  var capTot  = document.getElementById("cap-total");
+
+  var CYCLE = 7000;  // kCarouselCycleMs, src/hud_renderer.cpp
+  var idx = 0;
+  var timer = null;
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  capTot.textContent = String(slides.length);
+
+  // pips, mirroring the ones the device draws in its own header
+  var pips = slides.map(function (s, i) {
+    var b = document.createElement("button");
+    b.className = "pip";
+    b.type = "button";
+    b.setAttribute("aria-label", "Show " + s.dataset.name);
+    b.addEventListener("click", function () { go(i, true); });
+    pipsEl.appendChild(b);
+    return b;
+  });
+
+  function paint() {
+    slides.forEach(function (s, i) {
+      s.classList.toggle("on", i === idx);
+      s.setAttribute("aria-hidden", i === idx ? "false" : "true");
+    });
+    pips.forEach(function (p, i) {
+      p.setAttribute("aria-current", i === idx ? "true" : "false");
+    });
+    capName.textContent = slides[idx].dataset.name;
+    capIdx.textContent = String(idx + 1);
+  }
+
+  function restartBeat() {
+    if (reduced || !beatEl) return;
+    beatEl.classList.remove("run");
+    void beatEl.offsetWidth;   // reflow, so the animation actually restarts
+    beatEl.classList.add("run");
+  }
+
+  // Any manual page restarts the timer — touch is an accelerator, not a
+  // replacement, exactly as on the device.
+  function go(next, manual) {
+    idx = (next + slides.length) % slides.length;
+    paint();
+    if (manual) schedule();
+    else restartBeat();
+  }
+
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    restartBeat();
+    if (reduced) return;
+    timer = setTimeout(function () { go(idx + 1, false); schedule(); }, CYCLE);
+  }
+
+  // ---- drag / swipe ----
+  var startX = null, startY = null, dragging = false;
+
+  function down(x, y) { startX = x; startY = y; dragging = true; }
+  function up(x) {
+    if (!dragging || startX === null) return;
+    var dx = x - startX;
+    dragging = false;
+    if (Math.abs(dx) > 40) go(idx + (dx < 0 ? 1 : -1), true);
+    startX = null;
+  }
+
+  screenEl.addEventListener("pointerdown", function (e) { down(e.clientX, e.clientY); });
+  screenEl.addEventListener("pointerup",   function (e) { up(e.clientX); });
+  screenEl.addEventListener("pointercancel", function () { dragging = false; startX = null; });
+
+  screenEl.addEventListener("touchstart", function (e) {
+    var t = e.changedTouches[0]; down(t.clientX, t.clientY);
+  }, { passive: true });
+  screenEl.addEventListener("touchend", function (e) {
+    var t = e.changedTouches[0];
+    // only treat it as a page if it was mostly horizontal — vertical is a scroll
+    if (startY !== null && Math.abs(t.clientY - startY) > Math.abs(t.clientX - startX)) {
+      dragging = false; startX = null; return;
+    }
+    up(t.clientX);
+  }, { passive: true });
+
+  // ---- keyboard ----
+  screenEl.setAttribute("tabindex", "0");
+  screenEl.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight") { e.preventDefault(); go(idx + 1, true); }
+    if (e.key === "ArrowLeft")  { e.preventDefault(); go(idx - 1, true); }
+  });
+
+  // pause while the tab is hidden, so it does not race back on return
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { if (timer) clearTimeout(timer); timer = null; }
+    else schedule();
+  });
+
+  paint();
+  schedule();
+})();
+</script>
