@@ -22,10 +22,21 @@ over. Pages advance on a 7s timer, or on a swipe (which restarts the timer).
 An order whose targets are all count-style and share a planet slot -- the
 galaxy-wide "kill N of each faction" shape -- collapses to a single combined
 card instead of a page per target: a band naming the subject, the order and the
-overall mean, then one row per target with its figures, its own percentage and
-its track. Liberation and defence targets are excluded; they keep the per-task
-card, which their artwork and planet stats need. See orderIsCombinedCount() in
-src/hud_renderer.cpp.
+overall mean, then one row per target with the mark of what it is killing, its
+figures, its own percentage and its track. Liberation and defence targets are
+excluded; they keep the per-task card, which their artwork and planet stats
+need. See orderIsCombinedCount() in src/hud_renderer.cpp.
+
+The row marks are assigned by task POSITION, not by species -- taskIcon() in
+src/hud_renderer.cpp hands out Agitators/Vox Engine/Obtruder/Gatekeeper to rows
+0..3 and nothing past that. Nothing in the assignment payload identifies what a
+count task targets: all four live tasks are type 3 and differ only in progress,
+goal, and one untagged value that looks like a species hash with no mapping
+anywhere in this project or the community API's docs. This is a deliberate
+stand-in, and a different task order will pair the wrong mark with the wrong
+row; the caption and figures beside it are computed independently and stay
+right. Don't read the marks as a species lookup, and see the comment on
+taskIcon() before extending them.
 
 Two events take the whole panel: a new Major Order arriving, and the verdict
 when one ends. They interrupt the carousel and stay up until tapped -- no
@@ -81,7 +92,8 @@ clips where a card is present.
   NVS and entered by holding the panel while powering on — or, on a unit that
   has never been set up, by the first-boot prompt (see below).
 - `src/hud_icons.h` — generated 1-bit icon bitmap tables (glyphs for stat
-  tiles, crest/skull mark, shield icon, hazard chips, etc).
+  tiles, crest/skull mark, shield icon, hazard chips, the combined card's
+  per-row task marks, etc).
 - `src/hud_faction_icons.h` — generated full-colour (RGB565) faction badges
   for Automaton/Terminid/Illuminate. Separate from hud_icons.h because these
   three carry their own colour rather than being 1-bit masks tinted by the
@@ -175,9 +187,27 @@ Icon/art generator scripts (Python, in `tools/`):
 
 ## Current state (as of last commit, see `git log`)
 
-Run `git log --oneline -10` for the authoritative recent history. The most
-recent work (branch `mo-boot-overlay`) is two passes: when the new-order
-screen appears, and then what all three overlays look like.
+Run `git log --oneline -10` for the authoritative recent history.
+
+### Combined-card task icons on the restyled HUD
+
+Branch `merge-task-icons-into-restyle` combines the v1.5.1 webpage restyle
+with `mo-task-icons`, including the local `f9a21c2` hand-traced revisions of
+the four task marks. `tools/gen_icons.py` now generates both the official
+Helldiver masthead skull and those 16x16 marks; regenerate the header rather
+than choosing either branch's generated copy.
+
+`drawCombinedRow()` keeps the restyle's gold tint and hatched tracks, with a
+gold task mark before the caption. Completed rows retain a gold mark while
+their percentage and track turn green. The position-based assignment and its
+limitations above still apply; a mark is not evidence for a faction tint.
+Faction badges, the masthead, and other screens retain the v1.5.1 appearance.
+
+All 23 preview scenes were regenerated through `tools/preview.sh`; only
+`combined` and `combineddone` differ from the restyle baseline, and the other
+21 are byte-identical. Layout checks cover all four marks and pass, as does
+`tools/count_floor_test.sh`. The ESP32 build fits at 96.4% flash with about
+74 KB spare; static RAM remains 57,604 bytes (17.6%).
 
 ### Visual identity: the webpage restyle (branch `cyd-webpage-restyle`)
 
@@ -484,7 +514,7 @@ Before that, a SEAF/skull rebrand:
   PSRAM, headroom is limited).
 - Flash is the constraint to watch: OTA needs two app slots,
   `partitions_hd2.csv` caps the image at 1.9375 MiB, and the build sits at
-  **96.3% (1,957,417 of 2,031,616 bytes, ~72KB spare)**. It was at 98.8%
+  **96.4% of 2,031,616 bytes, ~74KB spare**. It was at 98.8%
   until the nine unreachable biome plates came out (2026-08-21, −174,212 B);
   the Major Order overlay art before that had cost 42KB. Compiled-in art is
   what fills this slot, so treat the headroom as a budget rather than as room

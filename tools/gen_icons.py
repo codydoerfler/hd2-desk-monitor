@@ -11,9 +11,13 @@ bits left transparent.
     python3 tools/gen_icons.py            # rewrite src/hud_icons.h
     python3 tools/gen_icons.py --preview  # also dump ASCII art to stdout
 
-Most shapes are original simple geometry. The two exceptions are the device's
-own crest and the SEAF emblem, which are reduced from the source art in
-tools/assets/ by threshold-and-fit (see mask_fit) rather than redrawn.
+Most shapes are original simple geometry. The device's own crest and the SEAF
+emblem are instead reduced from the source art in tools/assets/ by
+threshold-and-fit (see mask_fit). The Helldiver skull is rasterised from its
+official SVG (see svg_fit). The four Major Order task medallions are
+hand-traced pixel grids (see grid), because their source is
+too small and too compressed for a threshold to read (see the section comment
+above TASK_AGITATORS).
 """
 import argparse
 import math
@@ -217,6 +221,166 @@ def hd2_logo(c):
     src = Image.open(os.path.join(HERE, "assets", "hd2_logo_source.jpg")).convert("L")
     m = src.point(lambda p: 255 if p >= HD2_LOGO_CUT else 0)
     mask_fit(c, m.crop(m.getbbox()))
+
+
+# ---------------------------------------------------------------------------
+#  Major Order task medallions
+#
+#  The four marks the in-game Major Order screen sets beside each objective row
+#  of a multi-target kill order — Agitators, Vox Engines, Obtruders,
+#  Gatekeepers. Unlike every other icon in this file these are neither vector
+#  geometry nor a threshold of source art: they are hand-traced pixel grids,
+#  read off tools/assets/task_icon_*_source.png by eye and typed out below.
+#
+#  They are typed out because the automated route does not work here. The
+#  source is a photo of a screen, jpeg-compressed, in which each medallion
+#  occupies about 26x30 pixels — the marks are already at the edge of legible
+#  at their native size, and a luminance threshold over that has to decide the
+#  fate of pixels whose value is as much compression artefact as art. Run on
+#  these crops it produced four blobs that did not read as a skull, a mast,
+#  twin blades or a legged figure, because the information that makes them
+#  read as those things is not recoverable by a cutoff. A person looking
+#  at the crop can see the shape the pixels are describing; that reading is
+#  what is recorded here.
+#
+#  What each grid keeps is the mark inside the medallion, not the medallion.
+#  The ring around it is the one element identical on all four, so at 16px —
+#  where a ring would cost the outer pixel on every side and leave 14x14 for
+#  the mark — it is the part that costs the most and says the least. Same for
+#  the ring's tick marks at the quarters, which read as part of the art in the
+#  Vox Engine crop only because that mark is the thinnest of the four.
+#
+#  To re-derive one: the medallion centres and ring radii below were measured
+#  off the crops (full-resolution crop pixels). Take a window of 0.76 * radius
+#  about the centre — that clears the ring and its ticks while keeping the
+#  whole mark — and read it twice, once at the source's own 26x30 and once
+#  resampled to the 16x16 the icon is actually going to be, since the first
+#  says where an edge is and the second says whether it survives the size.
+#  Then fold each row about the mark's vertical axis before deciding: all four
+#  are drawn symmetric, so where the two halves disagree it is the jpeg
+#  talking, and averaging the pair is the honest read of what was there.
+#
+#     name: (cx, cy, ring radius) in tools/assets/task_icon_*_source.png
+#     Agitators (145, 128, 105)   Vox Engines (142, 126, 110)
+#     Obtruders (143, 116, 113)   Gatekeepers (143, 166, 107)
+
+# Agitators: a skull. A flat crown two rows deep — it does not dome, which is
+# the first thing that reads as this skull and not a head — then an abrupt
+# widening to the temples, two square sockets astride a nasal bar, cheeks
+# flaring a pixel wider than the cranium at socket height, and a jaw split by
+# the nasal cavity above a chin.
+TASK_AGITATORS = """
+................
+......####......
+......####......
+....########....
+...##########...
+..############..
+..############..
+..##..####..##..
+..##..####..##..
+.###..####..###.
+.###..####..###.
+..#####..#####..
+..#####..#####..
+....########....
+.....######.....
+................
+"""
+
+# Vox Engines: a broadcast mast. A thin mast from the ring's top tick down
+# into a core block, two vanes standing off the core at mid height with a
+# clear gap either side, two feet under the core, and a detached base pip. The
+# vanes are what carry it: they are the only horizontal thing in the set, and
+# without them the mark is a bar and reads as nothing.
+TASK_VOXENGINE = """
+.......##.......
+.......##.......
+.......##.......
+.......##.......
+......####......
+.....######.....
+.....######.....
+###..######..###
+###..######..###
+.....######.....
+.....##..##.....
+.....##..##.....
+................
+.......##.......
+.......##.......
+................
+"""
+
+# Obtruders: twin blades over a spike. The blades start as narrow tips near
+# the top centre and sweep out and down, so the dark channel between them runs
+# the full height; the spike drops into that channel from mid height and
+# carries on below the blades' ends. The channel is the mark — the blades are
+# never joined, at the top or anywhere.
+TASK_OBTRUDER = """
+................
+.....##..##.....
+.....##..##.....
+....###..###....
+...####..####...
+...####..####...
+..#####..#####..
+..#####..#####..
+..####.##.####..
+..###..##..###..
+...##..##..##...
+...##..##..##...
+.......##.......
+.......##.......
+.......##.......
+.......##.......
+"""
+
+# Gatekeepers: a legged figure. A spire that widens into a head, a row of two
+# eye gaps, a bright core with a small pip standing well off each side, then a
+# dark waist band and four legs — two doubled on the outside, two single
+# inboard — over a centre foot. The waist band is the one that has to stay: it
+# is what stops the top half reading as a second skull.
+TASK_GATEKEEPER = """
+................
+.......##.......
+......####......
+......####......
+.....######.....
+.....######.....
+....##.##.##....
+......####......
+.##...####...##.
+...##.####.##...
+...##......##...
+...##.#..#.##...
+...##.#..#.##...
+...##.#..#.##...
+..##...##...##..
+................
+"""
+
+
+def grid(art):
+    """Draw fn for a hand-authored pixel grid. '#' sets a pixel, '.' clears it.
+
+    The grid is already at device resolution, so each cell is stamped over its
+    whole supersampled block: Canvas.bits() then box-filters a cell that is
+    either fully covered or fully empty, and the icon comes out exactly as it
+    is written above rather than as something the threshold decided.
+    """
+    rows = art.strip("\n").split("\n")
+
+    def draw(c):
+        assert len(rows) == c.h, f"grid is {len(rows)} rows, slot is {c.h}"
+        for y, line in enumerate(rows):
+            assert len(line) == c.w, f"row {y} is {len(line)} wide, slot is {c.w}"
+            for x, ch in enumerate(line):
+                if ch == "#":
+                    c.dr.rectangle([x * S, y * S, x * S + S - 1, y * S + S - 1],
+                                   fill=255)
+
+    return draw
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +689,16 @@ ICONS = [
     ("hazStorm",    14, 14, haz_storm),
     ("hazTremor",   14, 14, haz_tremor),
     ("hazOther",    14, 14, haz_other),
+
+    # --- combined count card, one per objective row ------------------------
+    # 16x16 is moCombCapH exactly, so a mark sits in the same box the row's
+    # caption is set in and cannot reach the track below it or the row above.
+    # See drawCombinedRow() for the order these are handed out in, and the
+    # comment above taskIcon() for why that order is by position.
+    ("taskAgitators",  16, 16, grid(TASK_AGITATORS)),
+    ("taskVoxEngine",  16, 16, grid(TASK_VOXENGINE)),
+    ("taskObtruder",   16, 16, grid(TASK_OBTRUDER)),
+    ("taskGatekeeper", 16, 16, grid(TASK_GATEKEEPER)),
 ]
 
 
