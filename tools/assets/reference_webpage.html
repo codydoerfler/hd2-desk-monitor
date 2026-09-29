@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d0a">
+  <meta name="color-scheme" content="dark">
+  <title>Helldivers 2 — Major Order Monitor</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Barlow+Condensed:wght@400;500;600;700;800&display=swap");
+
+    :root {
+      --bg: #0b0d0a;
+      --panel: #141813;
+      --panel-deep: #0d100c;
+      --border: #3a4233;
+      --yellow: #ffe600;
+      --text: #f0f1e7;
+      --muted: #a7af9b;
+      --terminids: #ff932d;
+      --automatons: #ff5151;
+      --illuminate: #b98aff;
+      --neutral: #c6cdbd;
+      --font: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+      --stencil: "Black Ops One", Impact, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      min-width: 280px;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 18px;
+      text-transform: uppercase;
+      background:
+        radial-gradient(circle at 73% 18%, rgba(255,230,0,.045) 0 1px, transparent 2px),
+        radial-gradient(circle at 19% 64%, rgba(240,241,231,.05) 0 1px, transparent 2px),
+        linear-gradient(rgba(11,13,10,.93), rgba(11,13,10,.97)),
+        repeating-linear-gradient(0deg, transparent 0 39px, #4b57411f 39px 40px),
+        repeating-linear-gradient(90deg, transparent 0 39px, #4b57411f 39px 40px), #0b0d0a;
+      background-size: 260px 260px, 190px 190px, auto, auto, auto;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      opacity: .26;
+      background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.23) 3px 4px);
+      mix-blend-mode: multiply;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 19;
+      pointer-events: none;
+      box-shadow: inset 0 0 150px #000, inset 0 0 40px #000;
+      background:
+        linear-gradient(115deg, transparent 0 18%, rgba(255,255,255,.012) 18.2%, transparent 18.5%),
+        radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.38));
+    }
+
+    ::selection { color: #0b0d0a; background: var(--yellow); }
+    button, summary { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; text-transform: inherit; }
+    button:focus-visible, summary:focus-visible, a:focus-visible {
+      outline: 3px solid var(--yellow);
+      outline-offset: 5px;
+    }
+    [hidden] { display: none !important; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2, h3 { overflow-wrap: anywhere; }
+
+    .shell { position: relative; max-width: 1240px; margin: auto; padding: 24px 26px 34px; }
+    .shell::before, .shell::after {
+      position: absolute;
+      top: 12px;
+      color: #6d7565;
+      font-size: 10px;
+      letter-spacing: .2em;
+    }
+    .shell::before { content: "SECTOR 7G // 46.2219N"; left: 28px; }
+    .shell::after { content: "SUPER EARTH STANDARD 2184"; right: 28px; }
+
+    .masthead {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 22px;
+      min-height: 126px;
+      padding: 28px 24px 22px;
+      border: 1px solid #626d53;
+      border-bottom: 4px solid var(--yellow);
+      background: linear-gradient(105deg, #161b14 0 72%, #202416 72%);
+      box-shadow: 0 12px 30px #0009, inset 0 1px #ffffff0a;
+      overflow: hidden;
+    }
+
+    .masthead::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 30%;
+      height: 11px;
+      background: repeating-linear-gradient(135deg, var(--yellow) 0 10px, #111 10px 20px);
+      opacity: .9;
+    }
+
+    .masthead::after {
+      content: "SES // TACTICAL COMMAND TERMINAL";
+      position: absolute;
+      right: 18px;
+      bottom: 7px;
+      color: #707a67;
+      font-size: 9px;
+      letter-spacing: .2em;
+    }
+
+    .brand-mark {
+      width: 78px;
+      height: 78px;
+      padding: 8px;
+      color: var(--yellow);
+      border: 1px solid #6f765f;
+      background: #090b08;
+      clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+      filter: drop-shadow(0 0 8px rgba(255,230,0,.18));
+    }
+    .brand-mark svg { display: block; width: 100%; height: 100%; }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--yellow);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .2em;
+    }
+    h1 {
+      margin-bottom: 5px;
+      font-family: var(--stencil);
+      font-size: clamp(30px, 5vw, 54px);
+      font-weight: 400;
+      line-height: .98;
+      letter-spacing: .025em;
+      text-shadow: 3px 3px 0 #000, 0 0 18px #ffe60016;
+    }
+    .motto { margin: 0; color: #afb5a6; font-size: 12px; letter-spacing: .22em; }
+
+    .refresh {
+      position: relative;
+      min-width: 150px;
+      padding: 14px 18px 13px;
+      flex-shrink: 0;
+      color: #10120e;
+      background: var(--yellow);
+      border: 0;
+      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+      cursor: pointer;
+      font-weight: 800;
+      letter-spacing: .1em;
+      box-shadow: 0 0 20px #ffe60020;
+    }
+    .refresh::before { content: "↻"; margin-right: 9px; font-size: 20px; line-height: 0; }
+    .refresh:hover { background: #fff375; filter: drop-shadow(0 0 7px #ffe60066); }
+    .refresh:disabled { opacity: .55; cursor: wait; }
+
+    .telemetry {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 1px solid var(--border);
+      border-top: 0;
+      margin-bottom: 24px;
+      background: #0b0e0a;
+    }
+    .telemetry span {
+      min-width: 0;
+      padding: 10px 15px;
+      color: var(--muted);
+      border-right: 1px solid var(--border);
+      font-size: 12px;
+      letter-spacing: .11em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .telemetry span:last-child { border-right: 0; text-align: right; }
+    .connection { color: var(--yellow) !important; }
+    .connection::before {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 8px;
+      background: currentColor;
+      border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 1.8s infinite;
+    }
+
+    .notice {
+      position: relative;
+      padding: 17px 20px 17px 54px;
+      margin-bottom: 22px;
+      border: 1px solid #887927;
+      border-left: 5px solid var(--yellow);
+      background: #282410;
+      color: #fff1a0;
+      line-height: 1.45;
+    }
+    .notice::before { content: "⚠"; position: absolute; left: 18px; top: 15px; font-size: 22px; }
+
+    .order {
+      position: relative;
+      margin-bottom: 30px;
+      border: 1px solid #505946;
+      background: var(--panel);
+      box-shadow: 0 15px 32px #0008, inset 0 0 0 1px #000;
+      clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px);
+    }
+    .order::before, .order::after {
+      content: "";
+      position: absolute;
+      z-index: 2;
+      width: 18px;
+      height: 18px;
+      pointer-events: none;
+    }
+    .order::before { top: 8px; left: 8px; border-top: 2px solid var(--yellow); border-left: 2px solid var(--yellow); }
+    .order::after { right: 8px; bottom: 8px; border-right: 2px solid var(--yellow); border-bottom: 2px solid var(--yellow); }
+
+    .striped-header {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 16px;
+      min-height: 100px;
+      padding: 23px 126px 20px 30px;
+      border-bottom: 1px solid #59634e;
+      border-left: 7px solid var(--yellow);
+      background:
+        linear-gradient(90deg, #262c1f 0 48%, transparent 88%),
+        repeating-linear-gradient(135deg, #ffe6000c 0 10px, #00000014 10px 20px), #171b14;
+      overflow: hidden;
+    }
+    .striped-header::after {
+      content: "PRIORITY\A DIRECTIVE";
+      white-space: pre;
+      position: absolute;
+      right: 20px;
+      top: 16px;
+      width: 84px;
+      padding: 9px 5px 7px;
+      color: var(--yellow);
+      border: 3px double var(--yellow);
+      font: 400 14px/1.1 var(--stencil);
+      text-align: center;
+      transform: rotate(-2deg);
+      opacity: .9;
+    }
+    .striped-header h2 {
+      margin: 0;
+      font-family: var(--stencil);
+      font-size: clamp(24px, 3.4vw, 36px);
+      font-weight: 400;
+      line-height: 1.08;
+      letter-spacing: .035em;
+      text-shadow: 2px 2px #000;
+    }
+
+    .order-body { position: relative; padding: 26px 28px 29px; }
+    .order-body::before {
+      content: "SEAF FORM 11-42 // EYES ONLY";
+      position: absolute;
+      top: 10px;
+      right: 20px;
+      color: #626b59;
+      font-size: 9px;
+      letter-spacing: .18em;
+    }
+    .briefing {
+      max-width: 900px;
+      padding-left: 15px;
+      border-left: 2px solid #555e4b;
+      color: #d2d8c7;
+      line-height: 1.55;
+      white-space: pre-line;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      margin: 24px 0;
+      border: 1px solid #4c5544;
+      background: #4c5544;
+      box-shadow: inset 0 0 18px #000;
+    }
+    .stat { position: relative; padding: 16px 18px 17px; background: #0d110d; overflow: hidden; }
+    .stat::after { content: "+"; position: absolute; right: 6px; top: 1px; color: #596052; font-size: 13px; }
+    .stat-label { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .17em; }
+    .stat-value { display: block; margin-top: 5px; color: var(--yellow); font-size: 25px; font-weight: 700; letter-spacing: .025em; text-shadow: 0 0 10px #ffe60022; }
+
+    .section-label {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 25px 0 11px;
+      color: #858e7d;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .2em;
+    }
+    .section-label::after { content: ""; height: 1px; flex: 1; background: linear-gradient(90deg, #59624e, transparent); }
+
+    .factions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .faction {
+      --accent: var(--neutral);
+      position: relative;
+      min-width: 0;
+      border: 1px solid #464f3e;
+      border-top: 4px solid var(--accent);
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.022), transparent 45%),
+        repeating-linear-gradient(0deg, transparent 0 23px, rgba(116,128,102,.035) 23px 24px), #0d110d;
+      padding: 17px 17px 19px;
+      box-shadow: 0 8px 16px #0006, inset 0 0 18px #0005;
+      overflow: hidden;
+    }
+    .faction::before, .faction::after {
+      content: "";
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 38% 34%, #8c9580 0 1px, #242920 2px 4px, #050605 5px);
+      box-shadow: 0 1px 2px #000;
+    }
+    .faction::before { top: 7px; right: 7px; }
+    .faction::after { right: 7px; bottom: 7px; }
+    .faction h3 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 42px;
+      margin-bottom: 18px;
+      padding-bottom: 11px;
+      border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, #293025);
+      color: var(--accent);
+      font: 400 clamp(18px, 2vw, 23px) var(--stencil);
+      letter-spacing: .025em;
+      text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 32%, transparent);
+    }
+    .faction-icon { width: 34px; height: 34px; flex-shrink: 0; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+    .faction-icon svg { display: block; width: 100%; height: 100%; }
+
+    .task + .task { padding-top: 17px; margin-top: 19px; border-top: 1px dashed #454d3d; }
+    .task-label { display: block; min-height: 40px; margin-bottom: 9px; padding-right: 3px; font-size: 15px; font-weight: 700; line-height: 1.25; letter-spacing: .035em; }
+    .numbers { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 5px 12px; font-size: 17px; }
+    .percentage { color: var(--accent); font-size: 20px; font-weight: 800; text-shadow: 0 0 9px color-mix(in srgb, var(--accent) 38%, transparent); }
+    .track-shell { position: relative; margin: 10px 0 8px; padding-top: 7px; }
+    .track-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 5px;
+      background: repeating-linear-gradient(90deg, #697261 0 1px, transparent 1px 10%, #697261 10% calc(10% + 1px), transparent calc(10% + 1px) 20%);
+      opacity: .65;
+    }
+    .track { height: 18px; border: 1px solid #646e5b; background: #050705; overflow: hidden; box-shadow: inset 0 2px 5px #000; }
+    .fill {
+      position: relative;
+      height: 100%;
+      width: 0;
+      background: repeating-linear-gradient(135deg, transparent 0 8px, #0003 8px 12px), var(--accent);
+      box-shadow: 0 0 13px var(--accent), inset 0 1px #fff5;
+      transition: width .6s ease;
+    }
+    .fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, #fff5); }
+    .track.unavailable { background: repeating-linear-gradient(135deg, #252b20 0 8px, #141811 8px 16px); }
+    .status-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .status-chip { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+    .status-chip::before { content: "■"; margin-right: 6px; font-size: 8px; }
+    .scale { color: #697161; font-size: 9px; letter-spacing: .08em; }
+    .task-note, .empty, .data-note { margin-bottom: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+    .other { margin-top: 16px; }
+    .data-note { margin-top: 18px; padding: 10px 12px; border-left: 2px solid #5a6252; background: #0a0d09; }
+    details { margin-top: 18px; color: var(--muted); font-size: 13px; }
+    summary { width: fit-content; cursor: pointer; color: #bbc2b2; letter-spacing: .08em; }
+    summary::marker { color: var(--yellow); }
+    pre { padding: 14px; max-height: 320px; overflow: auto; border: 1px solid var(--border); background: #070907; white-space: pre-wrap; overflow-wrap: anywhere; text-transform: none; font-size: 12px; }
+
+    .placeholder {
+      position: relative;
+      padding: 70px 22px;
+      text-align: center;
+      border: 1px solid var(--border);
+      background: linear-gradient(90deg, transparent, #181d15, transparent);
+      color: var(--muted);
+      letter-spacing: .12em;
+    }
+    .placeholder::before { content: "⌖"; display: block; margin-bottom: 10px; color: var(--yellow); font-size: 38px; animation: pulse 1.8s infinite; }
+
+    footer {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 18px;
+      padding: 18px 0 0;
+      border-top: 1px solid #424a3b;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .12em;
+    }
+    footer .seal { color: var(--yellow); font: 400 13px var(--stencil); text-align: center; }
+    footer span:last-child { text-align: right; }
+    footer a { color: var(--yellow); text-underline-offset: 4px; }
+
+    @keyframes pulse { 50% { opacity: .45; } }
+
+    @media (max-width: 800px) {
+      .factions { grid-template-columns: 1fr; }
+      .faction h3 { margin-bottom: 14px; }
+      .task-label { min-height: 0; }
+      .masthead { grid-template-columns: auto 1fr; }
+      .refresh { grid-column: 1 / -1; width: 100%; }
+      .masthead::after { display: none; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { padding: 24px 12px; }
+      .shell::before, .shell::after { display: none; }
+      .masthead { display: flex; align-items: flex-start; flex-direction: column; gap: 15px; padding: 23px 18px 18px; }
+      .brand-mark { width: 60px; height: 60px; }
+      .refresh { width: 100%; }
+      .telemetry { grid-template-columns: 1fr; }
+      .telemetry span, .telemetry span:last-child { border-right: 0; border-bottom: 1px solid var(--border); text-align: left; }
+      .telemetry span:last-child { border-bottom: 0; }
+      .striped-header { padding: 22px 20px 76px; }
+      .striped-header::after { top: auto; bottom: 14px; left: 20px; right: auto; }
+      .order-body { padding: 22px 16px; }
+      .stats { grid-template-columns: 1fr; }
+      .stat { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .stat-value { margin: 0; font-size: 20px; text-align: right; }
+      footer { grid-template-columns: 1fr; text-align: center; }
+      footer span:last-child { text-align: center; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; }
+      .fill { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <div class="brand-mark" aria-label="Helldiver skull insignia">
+        <svg viewBox="0 0 256 256" role="img" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="fill-rule:evenodd;clip-rule:evenodd">
+          <path d="m256 0 200 67-14 198 62 64-83 99-55-22-23 81-87 25-87-25-23-81-55 22-83-99 62-64L56 67zM148 248c-28.148 0-51 22.852-51 51s22.852 51 51 51 51-22.852 51-51-22.852-51-51-51m108 102-33 50 15.904 15.904L256 390l17.096 25.904L289 400zm108-102c-28.148 0-51 22.852-51 51s22.852 51 51 51 51-22.852 51-51-22.852-51-51-51" style="fill:currentColor" transform="scale(.5)"/>
+        </svg>
+      </div>
+      <div>
+        <p class="eyebrow">Super Earth Armed Forces // Galactic Operations</p>
+        <h1>Major Order Monitor</h1>
+        <p class="motto">Freedom · Peace · Managed Democracy</p>
+      </div>
+      <button class="refresh" id="refresh" type="button">Refresh Intel</button>
+    </header>
+
+    <div class="telemetry" aria-label="Transmission status">
+      <span class="connection" id="connection">Establishing Uplink</span>
+      <span id="updated">Last Sync: Awaiting Intel</span>
+      <span id="refresh-countdown">Auto-refresh: 30s</span>
+    </div>
+
+    <div class="notice" id="notice" role="status" hidden></div>
+
+    <main id="orders" aria-label="Major orders" aria-busy="true">
+      <div class="placeholder">Receiving Major Order Transmission…</div>
+    </main>
+
+    <footer>
+      <span>Ministry of Defense // Authorized Personnel</span>
+      <span class="seal">For Super Earth</span>
+      <span>Unofficial Monitor · <a href="https://api.helldivers2.dev" target="_blank" rel="noopener noreferrer">Community API</a></span>
+    </footer>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const API = "https://api.helldivers2.dev/api/v1/assignments";
+      const REFRESH_MS = 30_000;
+      const TIMEOUT_MS = 15_000;
+      const USE_MOCK = true; // Set to false for live data
+      
+      const MOCK_DATA = [{
+        "id": 806233317,
+        "progress": [152276222, 90148625, 24222246],
+        "title": "MAJOR ORDER",
+        "briefing": "Uphold election security by destroying all those who would threaten it.",
+        "tasks": [
+          {"type":3,"values":[2,0,1500000000,0,0,0,0,0,0,0],"valueTypes":[1,2,3,4,6,5,8,9,11,12]},
+          {"type":3,"values":[3,0,500000000,0,0,0,0,0,0,0],"valueTypes":[1,2,3,4,6,5,8,9,11,12]},
+          {"type":3,"values":[4,0,500000000,0,0,0,0,0,0,0],"valueTypes":[1,2,3,4,6,5,8,9,11,12]}
+        ],
+        "reward": {"type":1,"amount":40},
+        "expiration": "2026-09-21T16:00:04.6536661Z"
+      }];
+
+      const FACTIONS = [
+        { 
+          id: 2, 
+          name: "Terminids", 
+          color: "var(--terminids)",
+          icon: '<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="fill-rule:evenodd;clip-rule:evenodd"><path d="M333 27c31.449 70-3.276 122.972-59 142-41 14-89.448 30-121 90 18-15 45-24 81-24h99s52-51 52-104-52-104-52-104" style="fill:#ffb901" transform="translate(-337.655 -59.586)scale(2.2069)"/><path d="M196 187c-8-47 11-92 74-116-26 32-23 62-3 84-25 7-51 17-71 32" style="fill:#ffb901" transform="translate(-337.655 -59.586)scale(2.2069)"/></svg>'
+        },
+        { 
+          id: 3, 
+          name: "Automatons", 
+          color: "var(--automatons)",
+          icon: '<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="fill-rule:evenodd;clip-rule:evenodd"><path d="M672 0v167l-71 52zm-38.866 68-15.393 47.48L552 68zM688 0l71 219-71-52zm38.866 68H808l-65.741 47.48z" style="fill:#ff6161" transform="matrix(2 0 0 2 -1104 37)"/></svg>'
+        },
+        { 
+          id: 4, 
+          name: "Illuminate", 
+          color: "var(--illuminate)",
+          icon: '<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="fill-rule:evenodd;clip-rule:evenodd"><path d="M1345.5 50c27.596 0 50 22.404 50 50s-22.404 50-50 50-50-22.404-50-50 22.404-50 50-50m70.101 30.515C1437.61 99.944 1451.5 128.363 1451.5 160c0 58.503-47.497 106-106 106s-106-47.497-106-106c0-31.637 13.89-60.056 35.899-79.485A72 72 0 0 0 1273.5 97c0 39.738 32.262 72 72 72s72-32.262 72-72c0-5.671-.657-11.19-1.899-16.485" style="fill:#cd8aea" transform="translate(-2933.333 -118.519)scale(2.37037)"/></svg>'
+        }
+      ];
+
+      const ui = {
+        orders: document.getElementById("orders"),
+        refresh: document.getElementById("refresh"),
+        connection: document.getElementById("connection"),
+        updated: document.getElementById("updated"),
+        countdown: document.getElementById("refresh-countdown"),
+        notice: document.getElementById("notice")
+      };
+
+      const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+      let loading = false;
+      let hasData = false;
+      let nextRefresh = Date.now() + REFRESH_MS;
+      let sequence = 0;
+      let clocks = [];
+
+      function element(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = String(text);
+        return node;
+      }
+
+      function numeric(value) {
+        if (value === null || value === undefined || value === "" || typeof value === "boolean") return null;
+        const result = Number(value);
+        return Number.isFinite(result) ? result : null;
+      }
+
+      function dateValue(value) {
+        if (value === null || value === undefined || value === "") return null;
+        const n = numeric(value);
+        const timestamp = n !== null ? (n < 1e12 ? n * 1000 : n) : Date.parse(value);
+        return Number.isFinite(timestamp) ? timestamp : null;
+      }
+
+      function timeRemaining(expiration) {
+        if (expiration === null) return "Not Supplied";
+        const remaining = expiration - Date.now();
+        if (remaining <= 0) return "Expired";
+        const seconds = Math.ceil(remaining / 1000);
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor(seconds % 86400 / 3600);
+        const minutes = Math.floor(seconds % 3600 / 60);
+        const secs = seconds % 60;
+        return `${days ? days + "d " : ""}${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+      }
+
+      // API value types: 1 = faction, 2 = planet, 3 = target count.
+      function typedValue(task, type) {
+        if (!Array.isArray(task.values) || !Array.isArray(task.valueTypes)) return null;
+        const index = task.valueTypes.findIndex(value => Number(value) === type);
+        return index >= 0 ? numeric(task.values[index]) : null;
+      }
+
+      function factionFor(task) {
+        const explicit = task.faction ?? task.factionId ?? typedValue(task, 1);
+        return FACTIONS.find(faction =>
+          numeric(explicit) === faction.id ||
+          String(explicit).toLowerCase() === faction.name.toLowerCase()
+        ) || null;
+      }
+
+      function decodeTask(task, index, assignment) {
+        const progressEntry = Array.isArray(assignment.progress) ? assignment.progress[index] : null;
+        const current = numeric(task.progress?.current ?? task.current ?? task.progress ?? progressEntry);
+        let target = numeric(task.target ?? task.total ?? typedValue(task, 3));
+        if (target === null && Number(task.type) === 11) target = 1;
+        return {
+          raw: task,
+          index,
+          faction: factionFor(task),
+          current,
+          target,
+          planet: typedValue(task, 2),
+          binary: Number(task.type) === 11 && target === 1
+        };
+      }
+
+      function tacticalStatus(percentage, valid) {
+        if (!valid) return "Intel Pending";
+        if (percentage >= 100) return "Objective Secured";
+        if (percentage >= 70) return "Victory Imminent";
+        if (percentage >= 35) return "On Track";
+        if (percentage >= 10) return "Active Campaign";
+        return "Critical Priority";
+      }
+
+      function renderTask(task, factionName) {
+        const section = element("div", "task");
+        const id = `task-label-${++sequence}`;
+        const description = task.raw.description || task.raw.title ||
+          (task.binary ? "Liberation Objective" : `Objective ${task.index + 1}`);
+        const label = element("span", "task-label", `${factionName} — ${description}`);
+        label.id = id;
+        section.append(label);
+
+        const valid = task.current !== null && task.current >= 0 && task.target !== null && task.target > 0;
+        const percentage = valid ? Math.min(100, Math.max(0, task.current / task.target * 100)) : null;
+        const numbers = element("div", "numbers");
+        numbers.append(
+          element("span", "", `${task.current === null ? "—" : numberFormat.format(task.current)} / ${task.target === null ? "—" : numberFormat.format(task.target)}`),
+          element("span", "percentage", valid ? `${numberFormat.format(percentage)}%` : "N/A")
+        );
+        section.append(numbers);
+
+        const trackShell = element("div", "track-shell");
+        const track = element("div", `track${valid ? "" : " unavailable"}`);
+        track.setAttribute("role", "progressbar");
+        track.setAttribute("aria-labelledby", id);
+        track.setAttribute("aria-valuemin", "0");
+        track.setAttribute("aria-valuemax", "100");
+        if (valid) {
+          track.setAttribute("aria-valuenow", String(percentage));
+          track.setAttribute("aria-valuetext", `${numberFormat.format(task.current)} of ${numberFormat.format(task.target)}; ${numberFormat.format(percentage)} percent`);
+          const fill = element("div", "fill");
+          fill.style.width = `${percentage}%`;
+          track.append(fill);
+        } else {
+          track.setAttribute("aria-valuetext", "Progress unavailable");
+        }
+        trackShell.append(track);
+        section.append(trackShell);
+
+        const statusRow = element("div", "status-row");
+        statusRow.append(element("span", "status-chip", tacticalStatus(percentage, valid)), element("span", "scale", "0 · 25 · 50 · 75 · 100"));
+        section.append(statusRow);
+
+        const notes = [];
+        if (task.planet !== null && task.planet > 0) notes.push(`Planet ID: ${task.planet}`);
+        if (task.binary) notes.push("Objective completion, not planet liberation percentage");
+        if (!valid) notes.push("API did not provide a readable current/target pair");
+        if (notes.length) section.append(element("p", "task-note", notes.join(" · ")));
+        return section;
+      }
+
+      function factionCard(faction, tasks) {
+        const card = element("section", "faction");
+        card.style.setProperty("--accent", faction.color);
+        const header = element("h3", "");
+        if (faction.icon) {
+          const iconWrapper = element("span", "faction-icon");
+          iconWrapper.innerHTML = faction.icon;
+          header.append(iconWrapper);
+        }
+        header.append(document.createTextNode(faction.name));
+        card.append(header);
+        if (tasks.length) tasks.forEach(task => card.append(renderTask(task, faction.name)));
+        else card.append(element("p", "empty", "No explicitly assigned objectives."));
+        return card;
+      }
+
+      function rewardText(assignment) {
+        const rewards = Array.isArray(assignment.rewards) ? assignment.rewards : assignment.reward != null ? [assignment.reward] : [];
+        if (!rewards.length) return "Not Supplied";
+        return rewards.map(reward => {
+          if (typeof reward !== "object" || reward === null) return String(reward);
+          const amount = numeric(reward.amount);
+          const name = reward.name || (Number(reward.type) === 1 ? "Medals" : "Reward Units");
+          return amount === null ? name : `${numberFormat.format(amount)} ${name}`;
+        }).join(" + ");
+      }
+
+      function addStat(container, label, value) {
+        const stat = element("div", "stat");
+        const valueNode = element("span", "stat-value", value);
+        stat.append(element("span", "stat-label", label), valueNode);
+        container.append(stat);
+        return valueNode;
+      }
+
+      function renderAssignment(assignment, index, clockList) {
+        const article = element("article", "order");
+        const header = element("header", "striped-header");
+        const titleBlock = element("div", "");
+        titleBlock.append(element("p", "eyebrow", `Priority Transmission // MO-${String(assignment.id ?? index + 1).padStart(4, "0")}`));
+        titleBlock.append(element("h2", "", assignment.title || "Major Order"));
+        header.append(titleBlock);
+        article.append(header);
+
+        const body = element("div", "order-body");
+        body.append(element("p", "briefing", assignment.briefing || assignment.description || "No briefing supplied. Consult objective intelligence below."));
+        const expiration = dateValue(assignment.expiration);
+        const stats = element("div", "stats");
+        const timer = addStat(stats, "Time Remaining", timeRemaining(expiration));
+        clockList.push({ node: timer, expiration });
+        addStat(stats, "Completion Reward", rewardText(assignment));
+
+        const rawTasks = Array.isArray(assignment.tasks) ? assignment.tasks : [];
+        const tasks = rawTasks.map((task, i) => decodeTask(task || {}, i, assignment));
+        const completed = tasks.filter(task => task.target !== null && task.target > 0 && task.current !== null && task.current >= task.target).length;
+        addStat(stats, "Objectives Complete", `${completed} / ${tasks.length}`);
+        body.append(stats);
+        body.append(element("div", "section-label", "Enemy Theater Objective Matrix"));
+
+        const grid = element("div", "factions");
+        FACTIONS.forEach(faction => grid.append(factionCard(faction, tasks.filter(task => task.faction?.id === faction.id))));
+        body.append(grid);
+
+        const unassigned = tasks.filter(task => !task.faction);
+        if (unassigned.length) {
+          const other = factionCard({ name: "Faction Unspecified", color: "var(--neutral)" }, unassigned);
+          other.classList.add("other");
+          body.append(other);
+        }
+
+        body.append(element("p", "data-note", "Intel protocol: faction labels use explicit API data. Planet-only objectives are not attributed without supporting intelligence. Missing progress is never reported as zero."));
+        const details = element("details");
+        details.append(element("summary", "", "Inspect Raw Mission Intelligence"));
+        details.append(element("pre", "", JSON.stringify(assignment, null, 2)));
+        body.append(details);
+        article.append(body);
+        return article;
+      }
+
+      function render(assignments) {
+        const fragment = document.createDocumentFragment();
+        const newClocks = [];
+        if (!assignments.length) fragment.append(element("div", "placeholder", "No Major Orders Currently Available. Stand By for Further Instructions."));
+        else assignments.forEach((assignment, index) => fragment.append(renderAssignment(assignment, index, newClocks)));
+        ui.orders.replaceChildren(fragment);
+        clocks = newClocks;
+      }
+
+      function extractAssignments(payload) {
+        if (Array.isArray(payload)) return payload;
+        if (Array.isArray(payload?.assignments)) return payload.assignments;
+        if (Array.isArray(payload?.data)) return payload.data;
+        if (payload && typeof payload === "object" && Array.isArray(payload.tasks)) return [payload];
+        throw new Error("Unexpected API response format");
+      }
+
+      async function refresh() {
+        if (loading) return;
+        loading = true;
+        ui.refresh.disabled = true;
+        ui.orders.setAttribute("aria-busy", "true");
+        ui.connection.textContent = "Receiving Intel";
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        try {
+          let assignments;
+          if (USE_MOCK) {
+            assignments = MOCK_DATA;
+          } else {
+            const response = await fetch(API, { method: "GET", headers: { "Accept": "application/json", "X-Super-Client": "Minis Helldivers Monitor", "X-Super-Contact": "github.com/codydoerfler" }, cache: "no-store", signal: controller.signal });
+            if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
+            assignments = extractAssignments(await response.json());
+          }
+          if (assignments.some(item => !item || typeof item !== "object" || Array.isArray(item))) throw new Error("Invalid assignment data");
+          render(assignments);
+          hasData = true;
+          ui.notice.hidden = true;
+          ui.connection.textContent = USE_MOCK ? "Simulation Uplink" : "Uplink Operational";
+          ui.updated.textContent = `Last Sync: ${new Date().toLocaleTimeString()} // Origin: Super Earth`;
+        } catch (error) {
+          ui.connection.textContent = hasData ? "Uplink Interrupted · Cached Intel" : "Uplink Unavailable";
+          const reason = error.name === "AbortError" ? "The request timed out." : error instanceof TypeError ? "A network or browser cross-origin restriction prevented access." : error.message;
+          ui.notice.textContent = `${reason} ${hasData ? "Showing the last successful response; progress may be stale." : "Live mission intelligence is unavailable."} Retrying automatically in 30 seconds.`;
+          ui.notice.hidden = false;
+          if (!hasData) ui.orders.replaceChildren(element("div", "placeholder", "Awaiting Reliable Intel. Check Your Connection or Try Refresh Intel."));
+        } finally {
+          clearTimeout(timeout);
+          loading = false;
+          nextRefresh = Date.now() + REFRESH_MS;
+          ui.refresh.disabled = false;
+          ui.orders.setAttribute("aria-busy", "false");
+          tick();
+        }
+      }
+
+      function tick() {
+        clocks.forEach(({ node, expiration }) => { node.textContent = timeRemaining(expiration); });
+        ui.countdown.textContent = loading ? "Auto-refresh: Syncing…" : `Auto-refresh: ${Math.max(0, Math.ceil((nextRefresh - Date.now()) / 1000))}s // AES-256`;
+        if (!loading && Date.now() >= nextRefresh) refresh();
+      }
+
+      ui.refresh.addEventListener("click", refresh);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+      window.addEventListener("online", () => { if (!loading) refresh(); });
+      setInterval(tick, 1000);
+      refresh();
+    })();
+  </script>
+</body>
+</html>

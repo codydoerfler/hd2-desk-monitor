@@ -145,7 +145,13 @@ class HUDRenderer {
   void drawCalReticle(int16_t x, int16_t y, int16_t s);
   void drawCalMedallion(int16_t x, int16_t y, int16_t s);
   // The diagonal hatch along the card's bottom edge.
+  // The masthead flash wants a bolder stripe than the hatch behind card text,
+  // so the pitch is a parameter. The five-argument form keeps the hatch's own
+  // spacing; it is spelled as an overload rather than a default argument
+  // because the defaults live in config.h, which this header does not pull in.
   void drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t ink);
+  void drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t ink,
+                     int16_t pitch, int16_t inkW);
   // A ring segment: every pixel between `rIn` and `rOut` of (cx,cy) whose angle
   // is in [a0,a1], degrees, measured from +x with y downward. There is no
   // drawArc() in this TFT_eSPI build's shim, and the medallion's laurel is the

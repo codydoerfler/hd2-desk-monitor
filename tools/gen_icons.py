@@ -21,6 +21,8 @@ import os
 
 from PIL import Image, ImageDraw
 
+import svgpath
+
 S = 8  # supersample factor
 THRESHOLD = 100  # 0-255 coverage above which a device pixel is set
 
@@ -55,6 +57,11 @@ class Canvas:
         self.w, self.h = w, h
         self.img = Image.new("L", (w * S, h * S), 0)
         self.dr = ImageDraw.Draw(self.img)
+        # Overridable per icon. THRESHOLD suits shapes drawn here, which are
+        # sized so their details clear it; art reduced from a source file does
+        # not get that luxury and may need a stricter cut to keep a small
+        # negative space open. See helldiver().
+        self.threshold = THRESHOLD
 
     def _p(self, pts):
         return [(x * S, y * S) for x, y in pts]
@@ -90,7 +97,7 @@ class Canvas:
         """Downsample + threshold to a list of rows of 0/1."""
         small = self.img.resize((self.w, self.h), Image.BOX)
         px = small.load()
-        return [[1 if px[x, y] >= THRESHOLD else 0 for x in range(self.w)]
+        return [[1 if px[x, y] >= self.threshold else 0 for x in range(self.w)]
                 for y in range(self.h)]
 
 
@@ -119,6 +126,44 @@ def mask_fit(c, mask):
     resized = mask.resize((new_w, new_h), Image.LANCZOS)
 
     c.img.paste(resized, ((slot_w - new_w) // 2, (slot_h - new_h) // 2))
+
+
+def svg_fit(c, name):
+    """Letterbox an official SVG insignia into the canvas' supersampled slot.
+
+    The vector route rather than mask_fit(): the source is scalable, so the
+    art is rasterised straight at slot resolution instead of being resampled
+    from whatever size someone happened to export. It also centres in float
+    rather than by integer division, which matters here because the skull is
+    symmetric -- half a supersample of drift is the difference between its two
+    eye sockets coming out the same width and not.
+
+    svgpath.coverage() supersamples internally too; 2 is enough on top of the
+    canvas' own S because Canvas.bits() box-filters this down again.
+    """
+    shapes = svgpath.load(os.path.join(HERE, "assets", "official_icons", name))
+    c.img.paste(svgpath.coverage(shapes, c.w * S, c.h * S, ss=2), (0, 0))
+
+
+# The eye sockets are about a fifth of the skull's width, so at masthead size
+# they are two device pixels across and every one of their edge pixels is a
+# partial. THRESHOLD's 39% sets those partials, which closes the sockets and
+# leaves a solid pentagon; cutting at 59% instead keeps them -- and the mouth,
+# which is smaller still -- open. It costs a little of the outer silhouette,
+# which has pixels to spare.
+SKULL_CUT = 150
+
+
+def helldiver(c):
+    """The Helldivers pentagon skull, from tools/assets/official_icons/.
+
+    The masthead mark -- knocked out of the filled Major Order button the way
+    the web monitor knocks it out of its filled badge, so the two read as the
+    same product. Even-odd fill is what keeps the eye sockets and mouth open;
+    under nonzero winding this reduces to a solid pentagon.
+    """
+    c.threshold = SKULL_CUT
+    svg_fit(c, "helldiver.svg")
 
 
 # The SEAF emblem source is a flag photo: a blue-grey field (luminance ~115)
@@ -450,6 +495,9 @@ ICONS = [
     # badge are text-only rather than carrying an illegible icon.
     ("emblemLarge", 72, 39, seaf),          # idle-screen centrepiece
     ("hd2LogoBoot", 440, 172, hd2_logo),    # boot-screen centrepiece, full width
+    # Masthead mark, knocked out of the Major Order button. Sized to leave a
+    # pixel of fill above and below it inside the 30x15 button.
+    ("helldiver",   12, 14, helldiver),
     ("automaton",   20, 20, automaton),
     ("terminid",    20, 20, terminid),
     ("illuminate",  20, 20, illuminate),

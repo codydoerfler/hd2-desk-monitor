@@ -139,15 +139,27 @@ script; treat it as a snapshot from when it was made, not a live view.
 
 Icon/art generator scripts (Python, in `tools/`):
 - `tools/gen_icons.py` — generates `src/hud_icons.h`. Contains the `crest()`
-  function (scene-band corner icon) among others.
+  function (scene-band corner icon) among others. Most icons are drawn in
+  code; `icons::helldiver` (the masthead pentagon-skull) instead comes from
+  `assets/official_icons/helldiver.svg` via `svg_fit()`. It carries its own
+  coverage threshold (`SKULL_CUT`) because the shared `THRESHOLD` closes the
+  eye sockets at 12x14 — a per-`Canvas` override, not a global change.
 - `tools/gen_header_art.py` — generates `src/hud_header_art.h` SEPARATELY
   from gen_icons.py. Now only emits the header-bar background wash
   (`headerBg`) — see the source layout note above on why the old title-bar
   badge/skull is gone.
 - `tools/gen_faction_icons.py` — generates `src/hud_faction_icons.h`, the
-  full-colour Automaton/Terminid/Illuminate badges. Source art is
-  `tools/assets/faction_*_source.png` (official insignia, reduced rather
-  than redrawn).
+  full-colour Automaton/Terminid/Illuminate badges. Source art is the
+  official vector insignia in `tools/assets/official_icons/*.svg`, read
+  through `tools/svgpath.py`. The faction colour is taken from the path's
+  own `fill` rather than sampled from a bitmap, so it is exact.
+- `tools/svgpath.py` — not a generator; the Pillow-only SVG path rasteriser
+  the two icon generators share. No SVG library is installed on this machine
+  and `qlmanage` composites onto opaque white, so this parses the `<path>`
+  grammar directly and returns an antialiased coverage mask. It handles only
+  `<path>` elements — no `<g>`, `<use>`, or shape shorthand — and says so
+  loudly rather than silently dropping geometry. If an official icon ever
+  fails to load, that limitation is the first thing to check.
 - `tools/gen_biomes.py` — generates `src/hud_biomes.h`, the campaign-screen
   terrain backdrops, from `tools/assets/biomes/*.webp`.
 - `tools/gen_mo_art.py` — generates `src/hud_mo_art.h` from
@@ -166,6 +178,53 @@ Icon/art generator scripts (Python, in `tools/`):
 Run `git log --oneline -10` for the authoritative recent history. The most
 recent work (branch `mo-boot-overlay`) is two passes: when the new-order
 screen appears, and then what all three overlays look like.
+
+### Visual identity: the webpage restyle (branch `cyd-webpage-restyle`)
+
+The device was brought into line with the separately-deployed web Major Order
+monitor. Not a port of the HTML — the same visual language, rendered natively.
+Five things changed, and one rule governs all of them.
+
+- **Gold replaced blue as the primary accent.** `theme::gold` (#FFDE12) now
+  carries progress, headings and the masthead chip. Two dimmer relatives
+  came with it: `goldDim` (#7E6B10) for borders and `goldMute` (#514609) for
+  stale/disabled. `goldDim` is deliberately *darker* than the brass it
+  replaced — the first pass used #9C8814 and every piece of chrome read as an
+  accent, which is what makes the bright gold stop meaning anything.
+- **`theme::blue` survives at exactly one call site**: the LIBCON tier legend
+  in `hud_renderer.cpp`, where 1/2/3/4/5 = white/red/yellow/green/blue matches
+  the community app's published legend. It is not leftover; don't "finish the
+  job" by removing it.
+- **Faction accents are the official colours**, added as `theme::amber`
+  (#FFB901 Terminid), `theme::salmon` (#FF6161 Automaton) and `theme::purple`
+  (#CD8AEA Illuminate), sampled from the SVG fills. `theme::red` was *not*
+  repointed to the Automaton salmon — it still carries failure/offline
+  meaning elsewhere and the two must not collide.
+- **The rule for when to use a faction colour**: tint by faction only where
+  the API states a faction explicitly (`p.event.faction`, `p.owner`);
+  everything else is gold. This is the reference page's own INTEL PROTOCOL
+  ("planet-only objectives are not attributed without supporting
+  intelligence") and it is why combined-card rows and the count bar stay gold
+  — the `valueType 4` enemy hash has no published lookup, so colouring by it
+  would be inventing an attribution. Resist "but the rows look plainer than
+  the mock"; that is the point.
+- **Masthead**: `drawOrderButton()` is a filled gold chip with the Helldiver
+  pentagon-skull knocked out of it. It used to downscale `icons::emblemLarge`
+  3x at runtime; that loop is gone. `emblemLarge` itself is still live in
+  `drawIdleBody()`, so don't prune it.
+- **Hazard motif**: a short diagonal yellow/black flash under the WiFi slot
+  (`layout::hazFlash*`), plus a diagonal hatch inside filled progress bars
+  (`layout::barHatch*`, shaded with `lerp565` toward the background). The
+  hatch is not decoration — large flat yellow bars read as slabs at this
+  size, and it is in the reference for the same reason.
+- `drawHazardBar()` is an **overload pair**, 5-arg forwarding to 7-arg. The
+  defaults could not live in `hud_renderer.h` because that header
+  deliberately does not include `config.h`; putting them there is the obvious
+  move and it does not compile.
+
+Cost: **+140 bytes of flash** (96.3%, 1,957,417 B). The faction badges were
+free — re-sourcing them from SVG landed byte-identical dimensions — and the
+skull was +28 B.
 
 The restyle, second and larger:
 
@@ -407,10 +466,13 @@ Before that, a SEAF/skull rebrand:
   `gen_faction_icons.py`/`gen_biomes.py` notes above. The Automaton badge
   went through one revision: an earlier draft used a drawn robot-head shape,
   caught by the icon audit as wrong (the actual insignia is a four-pointed
-  star) and corrected by replacing `tools/assets/faction_automaton_source.png`
-  and regenerating — `docs/icon-audit/icon_audit.html` predates that fix, so
-  its "automaton is not the faction insignia" finding is stale/resolved, not
-  an open issue.
+  star) and corrected by replacing the source art and regenerating —
+  `docs/icon-audit/icon_audit.html` predates that fix, so its "automaton is
+  not the faction insignia" finding is stale/resolved, not an open issue.
+  The hand-exported `tools/assets/faction_*_source.png` files that revision
+  edited were deleted on 2026-09-28 when the generator moved to the official
+  SVGs; they were dead weight by then, and the danger of leaving them was
+  that editing one would look like it should work and change nothing.
 
 ## Working conventions for this project
 
@@ -422,7 +484,7 @@ Before that, a SEAF/skull rebrand:
   PSRAM, headroom is limited).
 - Flash is the constraint to watch: OTA needs two app slots,
   `partitions_hd2.csv` caps the image at 1.9375 MiB, and the build sits at
-  **90.2% (1,832,485 of 2,031,616 bytes, ~194KB spare)**. It was at 98.8%
+  **96.3% (1,957,417 of 2,031,616 bytes, ~72KB spare)**. It was at 98.8%
   until the nine unreachable biome plates came out (2026-08-21, −174,212 B);
   the Major Order overlay art before that had cost 42KB. Compiled-in art is
   what fills this slot, so treat the headroom as a budget rather than as room
