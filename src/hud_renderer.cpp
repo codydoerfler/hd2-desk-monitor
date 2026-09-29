@@ -122,13 +122,24 @@ static String factionDisplayName(const String &faction) {
 // The card's accent, taken from whoever is attacking. Everything tinted by it
 // — the alert ribbon, the scene weave, the invader's half of the tug-of-war —
 // is describing that faction, so they all move together.
+//
+// Each hue is the fill of that faction's own insignia (see theme::), so a
+// badge and the bar beneath it match by construction. Super Earth's accent is
+// the HUD's gold rather than a blue of its own: the web monitor gives our side
+// the same yellow it gives the rest of its chrome, and a separate blue for
+// "us" was the colour that made every progress bar on this device read as
+// generic UI rather than as this game.
+//
+// The fallback is gold, and it is doing real work: it is what an objective
+// gets when the API has not said which faction it concerns. Nothing here
+// guesses — an unattributed row is drawn in the neutral accent rather than
+// tinted by whichever enemy seems likely.
 static uint16_t factionAccent(const String &faction) {
   String f = faction;
   f.toLowerCase();
   if (f.startsWith("illuminate")) return theme::purple;
   if (f.startsWith("terminid")) return theme::amber;
-  if (f.startsWith("automaton")) return theme::red;
-  if (f.startsWith("human")) return theme::blue;
+  if (f.startsWith("automaton")) return theme::salmon;
   return theme::gold;
 }
 
@@ -812,7 +823,25 @@ void HUDRenderer::drawTrack(int16_t y, int16_t h, float pct, uint16_t fill) {
   const int16_t fillW = (int16_t)((cardW - 2) * (clamped / 100.0f) + 0.5f);
 
   _tft.fillRect(cardX, y, cardW, h, theme::track);
-  if (fillW > 0) _tft.fillRect(cardX + 1, y + 1, fillW, h - 2, fill);
+  if (fillW > 0) {
+    _tft.fillRect(cardX + 1, y + 1, fillW, h - 2, fill);
+    // Diagonal tally over the fill, in the fill's own colour taken a third of
+    // the way to the background. Darkening the accent rather than hatching in
+    // a fixed ink keeps this legible on every bar the HUD draws -- gold, the
+    // three faction accents and the completed-green all shade to something
+    // still clearly themselves.
+    const uint16_t shade = lerp565(fill, theme::bg, 84);
+    for (int16_t row = 1; row < h - 1; row++) {
+      for (int16_t sx = -(row % barHatchPitch) - barHatchPitch; sx < fillW;
+           sx += barHatchPitch) {
+        int16_t a = sx, b = sx + barHatchInk;
+        if (b <= 0 || a >= fillW) continue;
+        if (a < 0) a = 0;
+        if (b > fillW) b = fillW;
+        _tft.drawFastHLine(cardX + 1 + a, y + row, b - a, shade);
+      }
+    }
+  }
   _tft.drawRect(cardX, y, cardW, h, theme::cardEdge);
 
   // Chevron cap riding the leading edge of the fill, once there is room for it
@@ -894,52 +923,32 @@ int16_t HUDRenderer::drawLibcon(int16_t x, int16_t y, int16_t h, int8_t tier) {
   return x + libconW;
 }
 
-// The reopen button: the SEAF emblem, boxed down to header height.
+// The reopen button, and the HUD's masthead mark: the Helldiver skull knocked
+// out of a filled gold chip.
 //
-// The emblem bitmap is 72x39 and the header row is 15 tall, so it is sampled
-// down by exactly 3 in both axes to 24x13 -- an integer factor, so every
-// destination pixel covers the same 3x3 source block and no row or column is
-// weighted differently from its neighbours. A source block counts as ink when
-// at least three of its nine pixels are set. Two was too eager: the emblem's
-// outline is a single pixel wide in places and a threshold of two smeared it
-// into a filled blob. Four dropped the eagle's wingtips entirely. Three keeps
-// the silhouette readable at a desk's distance, which is all this needs to
-// be -- it is a target to press, not artwork.
+// It used to be the SEAF emblem drawn in gold on the background, box-sampled
+// down from the 72x39 idle-screen bitmap by a factor of three. Two things were
+// wrong with that. The emblem is Super Earth's armed-forces crest, not the
+// Helldivers mark the web monitor puts in its masthead, so the two products
+// did not share a symbol; and at 24x13 its globe grid and laurel were a smear
+// that only read as "some emblem" from a desk away.
 //
-// Drawn pixel by pixel rather than by building a scaled bitmap: this is 312
-// destination pixels painted only when the header signature changes, and the
-// alternative is a second copy of the emblem in a flash budget that is at
-// 96%.
+// The skull is generated at the size it is drawn (see tools/gen_icons.py), so
+// there is no sampling step and no threshold to tune -- drawBitmap paints the
+// set bits and leaves the rest of the fill alone, which is exactly the
+// knockout the reference badge is. Filling the chip rather than outlining it
+// is also the clearer affordance: this is the one thing on the header row that
+// can be pressed, and gold-on-dark made it look like another readout.
 void HUDRenderer::drawOrderButton(bool on) {
   // Cleared either way -- the button comes and goes with the order, and the
   // row is not otherwise repainted under it.
   _tft.fillRect(moBtnX, moBtnY, moBtnW, moBtnH, theme::bg);
   if (!on) return;
 
-  _tft.drawRect(moBtnX, moBtnY, moBtnW, moBtnH, theme::goldDim);
-
-  const int16_t scale = 3;
-  const int16_t dw = icons::emblemLargeW / scale;  // 24
-  const int16_t dh = icons::emblemLargeH / scale;  // 13
-  const int16_t ox = moBtnX + (moBtnW - dw) / 2;
-  const int16_t oy = moBtnY + (moBtnH - dh) / 2;
-  const int16_t stride = (icons::emblemLargeW + 7) / 8;
-
-  for (int16_t dy = 0; dy < dh; dy++) {
-    for (int16_t dx = 0; dx < dw; dx++) {
-      uint8_t hits = 0;
-      for (int16_t sy = 0; sy < scale; sy++) {
-        const int16_t srcY = dy * scale + sy;
-        for (int16_t sx = 0; sx < scale; sx++) {
-          const int16_t srcX = dx * scale + sx;
-          const uint8_t byte =
-              pgm_read_byte(&icons::emblemLarge[srcY * stride + (srcX >> 3)]);
-          if (byte & (0x80 >> (srcX & 7))) hits++;
-        }
-      }
-      if (hits >= 3) _tft.drawPixel(ox + dx, oy + dy, theme::gold);
-    }
-  }
+  _tft.fillRect(moBtnX, moBtnY, moBtnW, moBtnH, theme::gold);
+  _tft.drawBitmap(moBtnX + (moBtnW - icons::helldiverW) / 2,
+                  moBtnY + (moBtnH - icons::helldiverH) / 2, icons::helldiver,
+                  icons::helldiverW, icons::helldiverH, theme::flagInk);
 }
 
 // The header row, shared by every screen: what kind of objective this is, the
@@ -998,6 +1007,13 @@ void HUDRenderer::drawStatusHeader(const String &title, int8_t tier, uint8_t pag
       }
     }
   }
+
+  // The masthead's hazard flash. Painted here rather than once at full repaint
+  // because drawStatusHeader() is what owns this band -- a carousel step
+  // repaints the row without a full clear, and anything in the band that is
+  // not redrawn alongside it is one clear away from being half a stripe.
+  drawHazardBar(hazFlashX, hazFlashY, hazFlashW, hazFlashH, theme::gold,
+                hazFlashPitch, hazFlashInk);
 
   drawRule(rule1Y);
 }
@@ -1234,9 +1250,12 @@ void HUDRenderer::drawStrip(const HudModel &m, const PlanetInfo &p, bool haveRat
   cols[n++] = {"SHARE", share, theme::gold};
   cols[n++] = {"DIVERS", here, theme::text};
   if (countStyle) {
-    cols[n++] = {"ETA", eta.length() ? eta : String(F("--")), theme::blue};
+    cols[n++] = {"ETA", eta.length() ? eta : String(F("--")), theme::gold};
   } else {
-    cols[n++] = {"PUSH /H", push, theme::blue};
+    // Ours in gold, theirs in their own colour. PUSH is the rate we are taking
+    // the planet at and REGEN is the rate they are taking it back, so the two
+    // columns reading in two colours is the whole point of the pair.
+    cols[n++] = {"PUSH /H", push, theme::gold};
     cols[n++] = {"REGEN /H", regen, accent};
   }
 
@@ -1277,7 +1296,12 @@ void HUDRenderer::drawCombinedRow(const HudModel &m, uint8_t taskIdx,
   const OrderTask &t = m.order.tasks[taskIdx];
   const CountWords w = countWords(t.taskType);
   const float pct = taskPercent(t);
-  const uint16_t tint = t.complete ? theme::green : theme::blue;
+  // Gold, not a faction accent. The combined card's rows are the tasks of one
+  // order counted together, and the API's valueType 4 enemy hash has no
+  // published lookup — so which enemy any given row is about is exactly what
+  // is not known here. Tinting them by a guess would be the same failure as
+  // labelling them by one.
+  const uint16_t tint = t.complete ? theme::green : theme::gold;
 
   const int16_t capW = cardW - moCombPctW - moCombPctGap;
 
@@ -1495,10 +1519,13 @@ void HUDRenderer::drawCard(const HudModel &m) {
     const float pct = taskPercent(*t);
     String caption = String(w.track) + F("  ") + formatCompact(t->progress) +
                      F(" / ") + formatCompact(t->goal);
+    // Gold rather than the card's accent: a count task's enemy is carried in
+    // the payload as an unpublished hash, so the faction attacking this planet
+    // is not evidence for who the kills are meant to be. Same reasoning as the
+    // combined card's rows.
+    const uint16_t countTint = t->complete ? theme::green : theme::gold;
     drawBarRow(orderSoloCapY, orderSoloBarY, campBarH, caption,
-               rateReadout(pct, cr.have, cr.pct),
-               t->complete ? theme::green : theme::blue, pct,
-               t->complete ? theme::green : theme::blue);
+               rateReadout(pct, cr.have, cr.pct), countTint, pct, countTint);
   } else if (p.valid && p.event.active) {
     // A defence is a tug of war over one bar: our share and theirs. The API
     // publishes only the pair, so the second bar is the first's complement —
@@ -1506,7 +1533,7 @@ void HUDRenderer::drawCard(const HudModel &m) {
     // independent measurement.
     const float held = p.event.defended();
     drawBarRow(orderCap1Y, orderBar1Y, orderBarH, String(F("SEAF HOLDING")),
-               rateReadout(held, r.have, r.pct), theme::blue, held, theme::blue);
+               rateReadout(held, r.have, r.pct), theme::gold, held, theme::gold);
     drawBarRow(orderCap2Y, orderBar2Y, orderBarH,
                upper(factionDisplayName(p.event.faction)) + String(F(" PUSH")),
                rateReadout(100.0f - held, r.have, -r.pct), accent, 100.0f - held,
@@ -1514,10 +1541,13 @@ void HUDRenderer::drawCard(const HudModel &m) {
   } else if (p.valid && taskIsLiberation(t->taskType)) {
     // taskLiberation(), not p.liberation: a planet that has finished flipping
     // is reported healed, which the health-derived figure reads as 0% taken.
+    // Tinted by whoever holds the planet, which is what the bar is measuring
+    // progress against — the same rule drawCampaignBody() already draws its
+    // liberation bar by. p.owner is explicit API data, not an inference.
     const float lib = taskLiberation(*t);
+    const uint16_t libTint = factionAccent(p.owner);
     drawBarRow(orderSoloCapY, orderSoloBarY, campBarH, String(F("LIBERATION")),
-               rateReadout(lib, r.have, r.pct), theme::blue, lib,
-               theme::blue);
+               rateReadout(lib, r.have, r.pct), libTint, lib, libTint);
   } else {
     // A defend objective with nothing attacking it has no progress to show:
     // the planet sits at full health, which is not "0% done". Now a genuine
@@ -3095,13 +3125,17 @@ void HUDRenderer::drawCalMedallion(int16_t x, int16_t y, int16_t s) {
 // takes a colour -- green stripes at gold's weight read as damage.
 void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h,
                                 uint16_t ink) {
+  drawHazardBar(x, y, w, h, ink, calStripePitch, calStripeInk);
+}
+
+void HUDRenderer::drawHazardBar(int16_t x, int16_t y, int16_t w, int16_t h,
+                                uint16_t ink, int16_t pitch, int16_t inkW) {
   _tft.fillRect(x, y, w, h, theme::bg);
   for (int16_t row = 0; row < h; row++) {
     // Stripes lean up-and-to-the-right, so their start walks left as the row
     // walks down. The modulo keeps the first one on screen for wide bars.
-    for (int16_t sx = -(row % calStripePitch) - calStripePitch; sx < w;
-         sx += calStripePitch) {
-      int16_t a = sx, b = sx + calStripeInk;
+    for (int16_t sx = -(row % pitch) - pitch; sx < w; sx += pitch) {
+      int16_t a = sx, b = sx + inkW;
       if (b <= 0 || a >= w) continue;
       if (a < 0) a = 0;
       if (b > w) b = w;

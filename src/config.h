@@ -115,9 +115,18 @@ namespace theme {
 constexpr uint16_t bg       = rgb565(0x0A, 0x0C, 0x10);  // #0A0C10 near-black
 constexpr uint16_t panel    = rgb565(0x12, 0x16, 0x1C);  // #12161C card fill
 constexpr uint16_t track    = rgb565(0x1E, 0x23, 0x2B);  // #1E232B bar track
-constexpr uint16_t gold     = rgb565(0xDF, 0xB2, 0x4F);  // #DFB24F accent
-constexpr uint16_t goldDim  = rgb565(0x8C, 0x6F, 0x32);  // #8C6F32 borders
-constexpr uint16_t goldMute = rgb565(0x5A, 0x48, 0x22);  // stale / disabled
+// The primary accent, and the one colour that carries the whole identity: the
+// yellow of the Helldiver emblem in tools/assets/official_icons/helldiver.svg
+// (#FFE800), pulled a little off pure saturation because unlike the badge it
+// has to work as small type on near-black across most of the HUD. It replaces
+// a muted tan that read as brass rather than as this game's yellow.
+constexpr uint16_t gold     = rgb565(0xFF, 0xDE, 0x12);  // #FFDE12 accent
+// Dimmer than the brass it replaces, not just a duller yellow. Chrome drawn at
+// the old tan's luminance reads as another accent once the accent itself is
+// this bright, and the reference keeps its borders and dividers well back --
+// the yellow there is spent on values and on the masthead, nowhere else.
+constexpr uint16_t goldDim  = rgb565(0x7E, 0x6B, 0x10);  // #7E6B10 borders
+constexpr uint16_t goldMute = rgb565(0x51, 0x46, 0x09);  // #514609 stale / disabled
 constexpr uint16_t text     = rgb565(0xE6, 0xE8, 0xEB);  // #E6E8EB body
 constexpr uint16_t grey     = rgb565(0x6E, 0x76, 0x80);  // #6E7680 labels
 constexpr uint16_t blue     = rgb565(0x4A, 0x8C, 0xC7);  // #4A8CC7 progress
@@ -155,11 +164,19 @@ constexpr uint16_t smoke     = rgb565(0x26, 0x14, 0x0F);  // #26140F
 constexpr uint16_t hdrEdge  = rgb565(0x32, 0x36, 0x2C);  // #32362C hairline border
 constexpr uint16_t hdrSkull = rgb565(0x14, 0x16, 0x1C);  // #14161C skull inside the disc
 
-// --- Major Order card ------------------------------------------------------
-// Faction accents. Automaton reuses `red` and Humans reuse `blue`; these are
-// the two the existing palette had no entry for.
-constexpr uint16_t purple   = rgb565(0xA8, 0x5C, 0xD8);  // #A85CD8 Illuminate
-constexpr uint16_t amber    = rgb565(0xE0, 0x8A, 0x2A);  // #E08A2A Terminids
+// --- Faction accents -------------------------------------------------------
+// Taken from the official insignia in tools/assets/official_icons/, which are
+// flat single-colour marks: each faction's hue is literally the fill of its
+// own SVG, so a badge and the bar underneath it are the same colour by
+// construction rather than by a hand-matched approximation.
+//
+// Automaton gets its own entry rather than reusing `red`. `red` is load
+// bearing elsewhere -- the offline dot, LIBCON tier 2, the alert ribbon -- and
+// repointing it at the insignia's salmon would have quietly restyled all three
+// into saying something they do not mean.
+constexpr uint16_t purple   = rgb565(0xCD, 0x8A, 0xEA);  // #CD8AEA Illuminate
+constexpr uint16_t amber    = rgb565(0xFF, 0xB9, 0x01);  // #FFB901 Terminids
+constexpr uint16_t salmon   = rgb565(0xFF, 0x61, 0x61);  // #FF6161 Automatons
 
 // Card chrome.
 constexpr uint16_t cardEdge = rgb565(0x2C, 0x32, 0x3C);  // #2C323C panel hairlines
@@ -228,9 +245,33 @@ constexpr int16_t contentW = contentR - padX;           // 440
 // space and absorbs the order title that used to sit on its own row.
 constexpr int16_t headerY = 18, headerH = 15;
 constexpr int16_t rule1Y = 39;
+
+// Masthead hazard flash: the diagonal yellow-and-black strip the web monitor
+// runs along the top right of its header. Reproduced in the one piece of clear
+// background the header band has -- between the bottom of the header row and
+// the rule under it -- so it costs no existing element a pixel. Right-aligned
+// on the content edge, where it lands exactly under the WiFi slot and reads as
+// the divider thickening into the corner rather than as a stripe of its own.
+//
+// Its own pitch, not calStripePitch: that one is tuned to sit *behind* text at
+// about a fifth duty, and at five pixels tall a texture that sparse is not a
+// hazard stripe, it is dust. This one alternates near evenly, which is what
+// the motif means.
+constexpr int16_t hazFlashW = 104, hazFlashH = 5;
+constexpr int16_t hazFlashX = contentR - hazFlashW;    // 356, the WiFi slot's edge
+constexpr int16_t hazFlashY = headerY + headerH + 1;   // 34, clear of the row
+constexpr int16_t hazFlashPitch = 6, hazFlashInk = 3;
 constexpr int16_t rule2Y = 84;
 constexpr int16_t targetY = 90, targetH = 34;
 constexpr int16_t barY = 132, barH = 36;
+
+// The same diagonal, run over a progress bar's fill. The web monitor textures
+// its bars this way and it earns its keep here for a second reason: with the
+// accent this saturated a full-width bar is a slab of pure yellow, and a tally
+// broken into diagonals is both easier to look at and easier to read a
+// position off. Wider pitch and a single-pixel ink, because this sits under a
+// bar that is only a dozen pixels tall.
+constexpr int16_t barHatchPitch = 7, barHatchInk = 1;
 constexpr int16_t tileY = 180, tileH = 68, tileGap = 7;
 constexpr int16_t rule3Y = 260;
 // The footer row's own geometry lives with the rest of the footer constants,
