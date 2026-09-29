@@ -112,9 +112,11 @@ Everything — platform, board, libraries, display config — is pinned in
 `platformio.ini`. The first build downloads the toolchain and libraries
 (a few minutes); later builds take seconds.
 
-Resource usage as built: **RAM 17.3 % (56,732 bytes static)**, **Flash 90.2 %
-(1,832,485 of 2,031,616 bytes)** — 199,131 bytes spare. That figure was 98.8 %
-until nine biome plates that no runtime path could reach came out of
+Resource usage with the restyle and task icons: **RAM 17.6 % (57,604 bytes
+static)**, **Flash 96.4 % of a 2,031,616-byte app slot** — about 74 KB spare.
+The four task bitmaps add 128 bytes of art, plus their drawing code.
+An earlier build fell from 98.8 % to 90.2 % when nine biome plates that no
+runtime path could reach came out of
 `hud_biomes.h` (19,360 bytes apiece; `biomeFromName()` in `src/hd2_model.h` is
 the only thing that indexes that table and never returned them). Before that,
 42 KB had gone on the Major Order overlay art plate, and
@@ -142,7 +144,7 @@ slot.
 > ⚠️ **Compiled-in assets are what fill this slot.** `hud_biomes.h`,
 > `hud_icons.h`, `hud_mo_art.h` and `hud_audio_clip.h` are most of the image,
 > and the headroom went as low as 24 KB before the dead biome plates came out.
-> There is room again — roughly another full-screen plate's worth — but the
+> There is about 74 KB of room now, but the
 > failure mode when it runs out is a link error rather than anything subtle,
 > so check the size output on anything art-shaped. Large new art and audio
 > still belong on the [SD card](#sd-card). The stock `huge_app.csv` is not an
@@ -677,13 +679,35 @@ per target. It gets one card carrying all of them:
 A flat band names the subject (the shared planet if there is one, otherwise
 `GALAXY-WIDE`), the order, and the mean of the rows below it, with the
 countdown plate at its top corner instead of its foot. Then one row per
-target: what it is counting, `current / goal` at full digits, that target's own
-percentage in a fixed column at the right, and its track underneath.
+target: the mark of the thing being killed, what it is counting, `current /
+goal` at full digits, that target's own percentage in a fixed column at the
+right, and its track underneath.
 
 Four full-page slides for four kill counts meant waiting 21 s to see the state
 of an order you can read in one glance, and the per-target percentage sat at
 the tail of a caption row in 6×8 type — the smallest thing on the card, at a
 different x on every page. Both are fixed by the same layout.
+
+**The mark at the head of each row is assigned by position, not by species.**
+Row 0 gets the Agitators mark, row 1 the Vox Engine, row 2 the Obtruder, row 3
+the Gatekeeper, and a fifth row would get none. That is the order the reference
+screenshot and the live payload both show, and it is a stand-in: nothing in the
+assignment payload says what a task is counting. An eradicate task carries
+`type: 3` and a goal, and `hd2_api.cpp` reads `planetIndex` and `goal` out of
+`values` because those are the two slots `valueTypes` names. The four live tasks
+differ only in progress, goal, and one untagged number that looks like a species
+hash — and nothing here or in the community API's docs maps those to names, so
+inventing a scheme off four samples would be a guess that reads as fact on
+screen. An order whose tasks arrive in a different order will put the wrong mark
+against the wrong row; the caption and the figures beside it stay right, because
+none of this touches them. Traced from the in-game medallions by
+`tools/gen_icons.py` — the inner symbol only, at 16×16, which is `moCombCapH`
+exactly, so a mark reaches neither the track under its row nor the row above it.
+
+The four marks use the restyled gold palette, including on a completed row.
+Completion still turns that row's percentage and hatched track green. The
+position-based marks do not establish faction identity, so unfinished rows
+keep the restyle's gold tracks rather than taking a faction colour.
 
 The percentage is `taskPercent()`: that target's progress against that
 target's goal. The in-game screen labels the same column "REWARD IMPACT %",
@@ -1021,6 +1045,7 @@ python3 tools/gen_icons.py --preview  # ...and dump ASCII art of each icon
 |---|---|---|
 | `emblemLarge` | 72x39 | Centrepiece on the idle and boot screens |
 | `helldiver` | 12x14 | Masthead chip, knocked out of the gold Major Order button |
+| `taskAgitators` `taskVoxEngine` `taskObtruder` `taskGatekeeper` | 16x16 | Combined count card, rows 0–3 respectively; hand-traced pixel grids |
 | `automaton` `terminid` `illuminate` | 20x20 | Faction badge |
 | `target` | 20x20 | Target row — replaces the old `TARGET` text label |
 | `clock` | 24x24 | Tile 1, time remaining |
